@@ -224,16 +224,18 @@ export function App() {
 
   return (
     <div className="app">
-      <div className="titlebar" />
-      <TabBar
-        tabs={tabSummaries}
-        activeTabId={state.activeTabId}
-        onSelect={switchTab}
-        onClose={closeTab}
-        onRename={renameTab}
-        onNew={addTab}
-        onReorder={reorderTab}
-      />
+      <div className="titlebar">
+        <div className="titlebar-traffic-spacer" />
+        <TabBar
+          tabs={tabSummaries}
+          activeTabId={state.activeTabId}
+          onSelect={switchTab}
+          onClose={closeTab}
+          onRename={renameTab}
+          onNew={addTab}
+          onReorder={reorderTab}
+        />
+      </div>
       <div className="workspaces">
         {state.tabs.map((tab) => (
           <Workspace
