@@ -30,6 +30,8 @@ export function Workspace({
   onMovePane,
   onPaneCwd,
 }: Props) {
+  const totalPanes = cols.reduce((s, c) => s + c.panes.length, 0);
+
   const outerRef = useRef<AllotmentHandle>(null);
   const innerRefs = useRef<Map<string, AllotmentHandle | null>>(new Map());
   const hasInitialResetRef = useRef(false);
