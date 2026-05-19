@@ -22,18 +22,24 @@ const HOST_LABEL = (() => {
 })();
 
 const IconMaximize = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2.5 4.5 V 2.5 H 4.5 M7.5 2.5 H 9.5 V 4.5 M9.5 7.5 V 9.5 H 7.5 M4.5 9.5 H 2.5 V 7.5" />
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8.5 2 H 12 V 5.5" />
+    <path d="M12 2 L 8 6" />
+    <path d="M5.5 12 H 2 V 8.5" />
+    <path d="M2 12 L 6 8" />
   </svg>
 );
 const IconRestore = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2.5 4.5 H 4.5 V 2.5 M9.5 4.5 H 7.5 V 2.5 M2.5 7.5 H 4.5 V 9.5 M9.5 7.5 H 7.5 V 9.5" />
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 5.5 H 8.5 V 2" />
+    <path d="M12 2 L 8 6" />
+    <path d="M2 8.5 H 5.5 V 12" />
+    <path d="M2 12 L 6 8" />
   </svg>
 );
 const IconClose = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
-    <path d="M3 3 L 9 9 M9 3 L 3 9" />
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <path d="M3.5 3.5 L 10.5 10.5 M10.5 3.5 L 3.5 10.5" />
   </svg>
 );
 
