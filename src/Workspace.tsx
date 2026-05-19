@@ -44,6 +44,7 @@ export function Workspace({
       data-tid={tid}
       style={{ display: active ? "block" : "none" }}
     >
+      {active && maximizedPaneId && <div className="pane-maximize-backdrop" />}
       <Allotment ref={outerRef} separator={false}>
         {cols.map((col) => (
           <Allotment.Pane key={col.cid} minSize={140}>

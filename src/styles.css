@@ -155,6 +155,15 @@ body {
   bottom: 0;
   z-index: 50;
 }
+.pane-maximize-backdrop {
+  position: fixed;
+  top: 68px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg);
+  z-index: 49;
+}
 .pane.focused::after {
   content: "";
   position: absolute;
@@ -220,6 +229,7 @@ body {
   line-height: 1;
 }
 .pane-btn:hover { background: var(--border); color: var(--text); }
+.pane-btn svg { display: block; }
 
 .pane-body {
   flex: 1 1 auto;

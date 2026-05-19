@@ -21,6 +21,23 @@ const HOST_LABEL = (() => {
   return `${user}@${host}`;
 })();
 
+const IconMaximize = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="square">
+    <rect x="2" y="2" width="8" height="8" />
+  </svg>
+);
+const IconRestore = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="square">
+    <rect x="2" y="4" width="6" height="6" />
+    <path d="M4 4 V 2 H 10 V 8 H 8" />
+  </svg>
+);
+const IconClose = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
+    <path d="M3 3 L 9 9 M9 3 L 3 9" />
+  </svg>
+);
+
 const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/g;
 
 export function Terminal({
@@ -290,7 +307,7 @@ export function Terminal({
           title={maximized ? "Restore" : "Maximize"}
           onClick={onToggleMaximize}
         >
-          {maximized ? "⛶" : "⤢"}
+          {maximized ? <IconRestore /> : <IconMaximize />}
         </button>
         <button
           className="pane-btn"
@@ -298,7 +315,7 @@ export function Terminal({
           title="Close"
           onClick={onClose}
         >
-          ✕
+          <IconClose />
         </button>
       </div>
       <div className="pane-body">
