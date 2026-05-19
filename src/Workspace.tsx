@@ -32,11 +32,12 @@ export function Workspace({ tid, cols, focusedPaneId, active, onFocusPane }: Pro
       data-tid={tid}
       style={{ display: active ? "block" : "none" }}
     >
-      <Allotment ref={outerRef}>
+      <Allotment ref={outerRef} separator={false}>
         {cols.map((col) => (
           <Allotment.Pane key={col.cid} minSize={140}>
             <Allotment
               vertical
+              separator={false}
               ref={(r) => {
                 innerRefs.current.set(col.cid, r);
               }}

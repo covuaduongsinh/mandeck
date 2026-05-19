@@ -169,7 +169,3 @@ body {
 }
 
 .split-view-view { background: var(--bg-pane); }
-.sash { background-color: transparent !important; }
-.sash:hover,
-.sash.sash-hover,
-.sash.sash-active { background-color: var(--accent) !important; }
