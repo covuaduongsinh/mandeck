@@ -12,6 +12,15 @@ import path from "node:path";
 import os from "node:os";
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
+
+// Dev builds share `app.getName() = "Mandeck"` with the legacy WaveTerm-based
+// Mandeck.app still installed in /Applications. Same userData dir →
+// Chromium SingletonLock + Cookies/Network files race → silent renderer crash.
+// Force dev mode to a separate profile dir to avoid clobbering each other.
+if (isDev) {
+  app.setPath("userData", path.join(app.getPath("appData"), "mandeck-dev"));
+}
+
 const ptys = new Map<string, IPty>();
 let windowSeq = 0;
 let cascadeOffset = 0;
@@ -189,27 +198,22 @@ ipcMain.handle("clipboard:readText", () => clipboard.readText());
 ipcMain.on("ctx-menu:show", (event, { url, selection }: { url?: string; selection?: string }) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
-  const items: MenuItemConstructorOptions[] = [];
-  if (url) {
-    items.push({
-      label: `Open Link  —  ${url.length > 60 ? url.slice(0, 57) + "…" : url}`,
-      click: () => { shell.openExternal(url).catch(() => {}); },
-    });
-    items.push({
-      label: "Copy Link Address",
-      click: () => clipboard.writeText(url),
-    });
-    items.push({ type: "separator" });
-  }
-  if (selection) {
-    items.push({ label: "Copy", click: () => clipboard.writeText(selection) });
-  } else {
-    items.push({ label: "Copy", enabled: false });
-  }
-  items.push({
-    label: "Paste",
-    click: () => event.sender.send("ctx-menu:paste"),
-  });
+  const items: MenuItemConstructorOptions[] = [
+    {
+      label: "Copy",
+      enabled: !!selection,
+      click: () => { if (selection) clipboard.writeText(selection); },
+    },
+    {
+      label: "Open URL in External Browser",
+      enabled: !!url,
+      click: () => { if (url) shell.openExternal(url).catch(() => {}); },
+    },
+    {
+      label: "Paste",
+      click: () => event.sender.send("ctx-menu:paste"),
+    },
+  ];
   Menu.buildFromTemplate(items).popup({ window: win });
 });
 
