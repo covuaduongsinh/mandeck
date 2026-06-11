@@ -4,7 +4,7 @@ import { Terminal } from "./Terminal";
 import type { Col, Edge } from "./types";
 
 type Props = {
-  tid: string;
+  workspaceId: string;
   cols: Col[];
   focusedPaneId: string;
   maximizedPaneId: string | null;
@@ -17,8 +17,10 @@ type Props = {
   onPaneCwd: (pid: string, cwd: string) => void;
 };
 
-export function Workspace({
-  tid,
+// The pane grid one workspace owns. Stays mounted while its workspace is
+// dormant (display:none) — unmounting would kill the terminals' PTYs (B4).
+export function PaneGrid({
+  workspaceId,
   cols,
   focusedPaneId,
   maximizedPaneId,
@@ -45,7 +47,8 @@ export function Workspace({
   //   3. A pane was closed — its sibling panes in the column should
   //      redistribute evenly for the same reason.
   // Adding a pane never triggers reset, so any custom ratios the user
-  // dragged into place survive ⌘D.
+  // dragged into place survive ⌘D. Subsequent activations never reset
+  // splitters, so user-dragged ratios survive workspace switching (B4).
   useEffect(() => {
     if (!active) return;
     const isFirst = !hasInitialResetRef.current;
@@ -66,7 +69,7 @@ export function Workspace({
   return (
     <div
       className="workspace"
-      data-tid={tid}
+      data-workspace-id={workspaceId}
       style={{ display: active ? "block" : "none" }}
     >
       {active && maximizedPaneId && <div className="pane-maximize-backdrop" />}
@@ -85,6 +88,7 @@ export function Workspace({
                   <Terminal
                     id={pid}
                     initialCwd={paneCwds[pid]}
+                    active={active}
                     focused={active && pid === focusedPaneId}
                     maximized={pid === maximizedPaneId}
                     onFocus={() => onFocusPane(pid)}

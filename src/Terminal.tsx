@@ -28,6 +28,7 @@ declare global {
 type Props = {
   id: string;
   initialCwd?: string;
+  active: boolean;
   focused: boolean;
   maximized: boolean;
   onFocus: () => void;
@@ -83,6 +84,7 @@ const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/g;
 export function Terminal({
   id,
   initialCwd,
+  active,
   focused,
   maximized,
   onFocus,
@@ -427,6 +429,17 @@ export function Terminal({
       try { fitRef.current?.fit(); } catch { /* noop */ }
     }
   }, [focused]);
+
+  // Workspace activation is the single resize-reconciliation point (B4):
+  // resizes that arrived while the workspace was hidden are reconciled here,
+  // in a rAF, once the container has real dimensions again.
+  useEffect(() => {
+    if (!active) return;
+    const raf = requestAnimationFrame(() => {
+      try { fitRef.current?.fit(); } catch { /* noop */ }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => {

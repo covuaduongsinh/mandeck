@@ -8,11 +8,11 @@ const hostInfo = {
 
 type MenuChannel =
   | "menu:new-pane"
-  | "menu:new-tab"
+  | "menu:new-workspace"
   | "menu:close-pane"
-  | "menu:close-tab"
-  | "menu:prev-tab"
-  | "menu:next-tab";
+  | "menu:close-workspace"
+  | "menu:prev-workspace"
+  | "menu:next-workspace";
 
 const api = {
   createPty: (opts: { id: string; cols: number; rows: number; cwd?: string }) =>
@@ -35,7 +35,6 @@ const api = {
     return () => ipcRenderer.removeListener(channel, listener);
   },
 
-  newWindow: () => ipcRenderer.send("window:new"),
   closeWindow: () => ipcRenderer.send("window:close"),
 
   onMenu: (channel: MenuChannel, cb: () => void) => {
@@ -53,6 +52,14 @@ const api = {
 
   loadState: (): Promise<unknown> => ipcRenderer.invoke("state:load"),
   saveState: (payload: unknown) => ipcRenderer.send("state:save", payload),
+  onQuitFlush: (cb: () => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("app:quit-flush", listener);
+    return () => {
+      ipcRenderer.removeListener("app:quit-flush", listener);
+    };
+  },
+  flushDone: () => ipcRenderer.send("state:flush-done"),
   onQuitPrompt: (cb: (windowMs: number) => void) => {
     const listener = (_: unknown, windowMs: number) => cb(windowMs);
     ipcRenderer.on("app:quit-prompt", listener);

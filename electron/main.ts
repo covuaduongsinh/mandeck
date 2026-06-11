@@ -4,6 +4,7 @@ import {
   clipboard,
   ipcMain,
   Menu,
+  screen,
   shell,
   type MenuItemConstructorOptions,
 } from "electron";
@@ -12,6 +13,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
+import { loadStateFile, writeBackup, writeStateFile } from "./state-file.mjs";
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 
@@ -24,12 +26,73 @@ if (isDev) {
 }
 
 const ptys = new Map<string, IPty>();
-let windowSeq = 0;
-let cascadeOffset = 0;
 
 const STATE_PATH = () => path.join(app.getPath("userData"), "state.json");
 const QUIT_CONFIRM_WINDOW_MS = 2000;
 let quitConfirmedUntil = 0;
+let quitFlushed = false;
+
+// Backup-failure save suppression (B3 §7): if the timestamped backup of the
+// old state file could not be written, no save may overwrite the only copy
+// until a backup succeeds.
+let pendingBackup: { raw: string; kind: string } | null = null;
+
+function savesAllowed(): boolean {
+  if (!pendingBackup) return true;
+  try {
+    writeBackup(STATE_PATH(), pendingBackup.raw, pendingBackup.kind);
+    pendingBackup = null;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type Bounds = { x: number; y: number; w: number; h: number };
+
+// windowBounds is owned by the main process: merged into every save and
+// persisted debounced on move/resize (B3).
+let currentBounds: Bounds | null = null;
+let lastRendererPayload: Record<string, unknown> | null = null;
+
+function mergedPayload(): Record<string, unknown> | null {
+  if (!lastRendererPayload) return null;
+  return currentBounds
+    ? { ...lastRendererPayload, windowBounds: currentBounds }
+    : lastRendererPayload;
+}
+
+function boundsOnScreen(b: Bounds): boolean {
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return (
+      b.x < a.x + a.width &&
+      b.x + b.w > a.x &&
+      b.y < a.y + a.height &&
+      b.y + b.h > a.y
+    );
+  });
+}
+
+function readSavedWindowBounds(): Bounds | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(STATE_PATH(), "utf8"));
+    if (!parsed || parsed.version !== 2) return null;
+    const wb = parsed.windowBounds;
+    if (
+      wb &&
+      typeof wb === "object" &&
+      [wb.x, wb.y, wb.w, wb.h].every(
+        (n: unknown) => typeof n === "number" && Number.isFinite(n)
+      )
+    ) {
+      return { x: wb.x, y: wb.y, w: wb.w, h: wb.h };
+    }
+  } catch {
+    /* absent or unreadable — the load decision table handles it */
+  }
+  return null;
+}
 
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
@@ -41,18 +104,19 @@ function sendToFocused(channel: string, payload?: unknown) {
 }
 
 function createWindow() {
-  const seq = ++windowSeq;
-  const offsetX = ((cascadeOffset++) % 8) * 24;
-  const offsetY = offsetX;
+  // Restored bounds are validated against the current display arrangement;
+  // a frame that intersects no display's work area is discarded and the
+  // window opens at the default size, centered (B3).
+  const saved = currentBounds ?? readSavedWindowBounds();
+  const valid = saved && boundsOnScreen(saved) ? saved : null;
 
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    x: 100 + offsetX || undefined,
-    y: 100 + offsetY || undefined,
+    ...(valid
+      ? { x: valid.x, y: valid.y, width: valid.w, height: valid.h }
+      : { width: 1400, height: 900 }),
     titleBarStyle: "hiddenInset",
     backgroundColor: "#0b0d10",
-    title: `Mandeck — Window ${seq}`,
+    title: "Mandeck",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -61,9 +125,34 @@ function createWindow() {
     },
   });
 
+  {
+    const b = win.getBounds();
+    currentBounds = { x: b.x, y: b.y, w: b.width, h: b.height };
+  }
+
+  let boundsTimer: NodeJS.Timeout | null = null;
+  const onBoundsChange = () => {
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(() => {
+      boundsTimer = null;
+      if (win.isDestroyed()) return;
+      const b = win.getBounds();
+      currentBounds = { x: b.x, y: b.y, w: b.width, h: b.height };
+      const payload = mergedPayload();
+      if (!payload || !savesAllowed()) return;
+      try {
+        writeStateFile(STATE_PATH(), payload);
+      } catch (err) {
+        console.error("[mandeck] windowBounds save failed", err);
+      }
+    }, 400);
+  };
+  win.on("move", onBoundsChange);
+  win.on("resize", onBoundsChange);
+
   if (isDev) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL!);
-    if (seq === 1 && process.env.MANDECK_DEVTOOLS === "1") {
+    if (process.env.MANDECK_DEVTOOLS === "1") {
       win.webContents.openDevTools({ mode: "detach" });
     }
   } else {
@@ -79,14 +168,9 @@ function buildMenu() {
       label: "File",
       submenu: [
         {
-          label: "New Window",
-          accelerator: "Cmd+Shift+N",
-          click: () => createWindow(),
-        },
-        {
-          label: "New Tab",
+          label: "New Workspace",
           accelerator: "Cmd+T",
-          click: () => sendToFocused("menu:new-tab"),
+          click: () => sendToFocused("menu:new-workspace"),
         },
         {
           label: "New Pane",
@@ -105,9 +189,9 @@ function buildMenu() {
           click: () => sendToFocused("menu:close-pane"),
         },
         {
-          label: "Close Tab",
+          label: "Close Workspace",
           accelerator: "Cmd+Shift+W",
-          click: () => sendToFocused("menu:close-tab"),
+          click: () => sendToFocused("menu:close-workspace"),
         },
       ],
     },
@@ -117,14 +201,14 @@ function buildMenu() {
       label: "Workspace",
       submenu: [
         {
-          label: "Previous Tab",
+          label: "Previous Workspace",
           accelerator: "Cmd+[",
-          click: () => sendToFocused("menu:prev-tab"),
+          click: () => sendToFocused("menu:prev-workspace"),
         },
         {
-          label: "Next Tab",
+          label: "Next Workspace",
           accelerator: "Cmd+]",
-          click: () => sendToFocused("menu:next-tab"),
+          click: () => sendToFocused("menu:next-workspace"),
         },
       ],
     },
@@ -187,31 +271,31 @@ ipcMain.on("pty:kill", (_e, { id }) => {
   ptys.delete(id);
 });
 
-ipcMain.on("window:new", () => {
-  createWindow();
-});
-
 ipcMain.on("window:close", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   win?.close();
 });
 
+// B3 load decision table runs here, in the main process, so the timestamped
+// backup exists on disk before the renderer hydrates (and therefore before
+// any debounced v2 save can overwrite the file).
 ipcMain.handle("state:load", (): unknown => {
-  try {
-    const raw = fs.readFileSync(STATE_PATH(), "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
+  const result = loadStateFile(STATE_PATH());
+  if (result.backupFailed && result.raw !== null) {
+    pendingBackup = { raw: result.raw, kind: result.backupKind ?? "bad" };
+    console.error(
+      "[mandeck] state backup failed; saves suppressed until a backup succeeds"
+    );
   }
+  return result.state;
 });
 
 ipcMain.on("state:save", (_e, payload: unknown) => {
+  if (!payload || typeof payload !== "object") return;
+  if (!savesAllowed()) return;
+  lastRendererPayload = payload as Record<string, unknown>;
   try {
-    const file = STATE_PATH();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = file + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(payload));
-    fs.renameSync(tmp, file);
+    writeStateFile(STATE_PATH(), mergedPayload());
   } catch (err) {
     console.error("[mandeck] state:save failed", err);
   }
@@ -284,21 +368,45 @@ app.on("activate", () => {
 
 app.on("before-quit", (e) => {
   const now = Date.now();
-  if (now < quitConfirmedUntil) {
-    // Confirmed within the window — proceed with the quit.
-    for (const pty of ptys.values()) {
-      try { pty.kill(); } catch { /* noop */ }
+  if (now >= quitConfirmedUntil) {
+    // First ⌘Q press: cancel quit, show toast, arm the confirm window.
+    e.preventDefault();
+    quitConfirmedUntil = now + QUIT_CONFIRM_WINDOW_MS;
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send("app:quit-prompt", QUIT_CONFIRM_WINDOW_MS);
     }
-    ptys.clear();
+    setTimeout(() => {
+      if (Date.now() >= quitConfirmedUntil) quitConfirmedUntil = 0;
+    }, QUIT_CONFIRM_WINDOW_MS + 50);
     return;
   }
-  // First ⌘Q press: cancel quit, show toast, arm the confirm window.
-  e.preventDefault();
-  quitConfirmedUntil = now + QUIT_CONFIRM_WINDOW_MS;
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send("app:quit-prompt", QUIT_CONFIRM_WINDOW_MS);
+  if (!quitFlushed) {
+    // Confirmed quit: hold it until the renderer force-flushes any pending
+    // debounced save (B3 quit-flush), then resume.
+    e.preventDefault();
+    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+    if (!win) {
+      quitFlushed = true;
+      app.quit();
+      return;
+    }
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      ipcMain.removeListener("state:flush-done", finish);
+      quitFlushed = true;
+      quitConfirmedUntil = Date.now() + QUIT_CONFIRM_WINDOW_MS;
+      app.quit();
+    };
+    ipcMain.once("state:flush-done", finish);
+    win.webContents.send("app:quit-flush");
+    setTimeout(finish, 300);
+    return;
   }
-  setTimeout(() => {
-    if (Date.now() >= quitConfirmedUntil) quitConfirmedUntil = 0;
-  }, QUIT_CONFIRM_WINDOW_MS + 50);
+  // Flushed and confirmed — proceed with the quit.
+  for (const pty of ptys.values()) {
+    try { pty.kill(); } catch { /* noop */ }
+  }
+  ptys.clear();
 });
