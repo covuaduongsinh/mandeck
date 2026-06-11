@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "rebuild": "electron-rebuild -f -w node-pty",
+    "test:migration": "node scripts/test-migration.mjs",
     "postinstall": "electron-rebuild -f -w node-pty || echo 'rebuild skipped'",
     "dist": "npm run build && electron-builder --mac --arm64 --dir"
   },
