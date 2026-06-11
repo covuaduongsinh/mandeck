@@ -65,6 +65,23 @@ const api = {
     ipcRenderer.on("app:quit-prompt", listener);
     return () => ipcRenderer.removeListener("app:quit-prompt", listener);
   },
+  // A1/A2: the reduced-transparency boolean travels over IPC so the xterm
+  // theme object (JS, not CSS) stays in lockstep with the media query.
+  getReducedTransparency: (): Promise<boolean> =>
+    ipcRenderer.invoke("theme:reduced-transparency"),
+  onReducedTransparencyChanged: (cb: (reduced: boolean) => void) => {
+    const listener = (_: unknown, reduced: boolean) => cb(reduced);
+    ipcRenderer.on("theme:reduced-transparency-changed", listener);
+    return () =>
+      ipcRenderer.removeListener("theme:reduced-transparency-changed", listener);
+  },
+  onOpaqueMode: (cb: (on: boolean) => void) => {
+    const listener = (_: unknown, on: boolean) => cb(on);
+    ipcRenderer.on("menu:opaque-mode", listener);
+    return () => {
+      ipcRenderer.removeListener("menu:opaque-mode", listener);
+    };
+  },
   openExternal: (url: string): Promise<boolean> =>
     ipcRenderer.invoke("shell:openExternal", url),
   readClipboardText: (): Promise<string> =>

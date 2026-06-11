@@ -4,6 +4,7 @@ import {
   clipboard,
   ipcMain,
   Menu,
+  nativeTheme,
   screen,
   shell,
   type MenuItemConstructorOptions,
@@ -103,6 +104,41 @@ function sendToFocused(channel: string, payload?: unknown) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+// A2 window-material colors: the only sanctioned color literals outside the
+// renderer token sheet. Alpha-zero lets the native effect view show through;
+// the opaque branch matches the renderer's --bg-root.
+const WINDOW_BG_GLASS = "#00000000";
+const WINDOW_BG_OPAQUE = "#0B0B10";
+
+// Runtime material switches are sanctioned ONLY for the native-theme
+// subscription (A2 state 3); everything else is constructor-time.
+function applyWindowMaterial(win: BrowserWindow, reduced: boolean) {
+  if (reduced) {
+    win.setVibrancy(null);
+    win.setBackgroundColor(WINDOW_BG_OPAQUE);
+  } else {
+    win.setVibrancy("under-window");
+    win.setBackgroundColor(WINDOW_BG_GLASS);
+  }
+}
+
+let lastReducedTransparency = false;
+function watchNativeTheme() {
+  lastReducedTransparency = nativeTheme.prefersReducedTransparency;
+  nativeTheme.on("updated", () => {
+    const reduced = nativeTheme.prefersReducedTransparency;
+    if (reduced === lastReducedTransparency) return;
+    lastReducedTransparency = reduced;
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue;
+      applyWindowMaterial(win, reduced);
+      // Keeps the renderer's xterm theme object (JS, not CSS) in lockstep
+      // with the CSS media query (A1).
+      win.webContents.send("theme:reduced-transparency-changed", reduced);
+    }
+  });
+}
+
 function createWindow() {
   // Restored bounds are validated against the current display arrangement;
   // a frame that intersects no display's work area is discarded and the
@@ -110,12 +146,26 @@ function createWindow() {
   const saved = currentBounds ?? readSavedWindowBounds();
   const valid = saved && boundsOnScreen(saved) ? saved : null;
 
+  // A2: every material option is set in the constructor — never via setters
+  // after creation, which historically resurfaces white-flash bugs. The
+  // reduced-transparency branch builds today's opaque window instead.
+  const reduced = nativeTheme.prefersReducedTransparency;
+
   const win = new BrowserWindow({
     ...(valid
       ? { x: valid.x, y: valid.y, width: valid.w, height: valid.h }
       : { width: 1400, height: 900 }),
     titleBarStyle: "hiddenInset",
-    backgroundColor: "#0b0d10",
+    // The native circles are 12px tall: y = (44 − 12) / 2 = 16 centers them
+    // in the 44px bar (A2).
+    trafficLightPosition: { x: 16, y: 16 },
+    ...(reduced
+      ? { backgroundColor: WINDOW_BG_OPAQUE }
+      : {
+          backgroundColor: WINDOW_BG_GLASS,
+          vibrancy: "under-window" as const,
+          visualEffectState: "followWindow" as const,
+        }),
     title: "Mandeck",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -153,6 +203,9 @@ function createWindow() {
   if (isDev) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL!);
     if (process.env.MANDECK_DEVTOOLS === "1") {
+      // Known caveat (A2): detached DevTools kills vibrancy for the life of
+      // the window and it cannot be restored without recreating the window.
+      // Dev sessions with this flag lose glass — never chase as a regression.
       win.webContents.openDevTools({ mode: "detach" });
     }
   } else {
@@ -196,7 +249,29 @@ function buildMenu() {
       ],
     },
     { role: "editMenu" },
-    { role: "viewMenu" },
+    {
+      label: "View",
+      submenu: [
+        {
+          // A1 state 3: user-invoked solid surfaces — doubles as the
+          // screen-recording mode and the manual accessibility escape hatch.
+          label: "Opaque Mode",
+          type: "checkbox",
+          checked: false,
+          click: (item) => sendToFocused("menu:opaque-mode", item.checked),
+        },
+        { type: "separator" },
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
     {
       label: "Workspace",
       submenu: [
@@ -331,6 +406,11 @@ ipcMain.handle("shell:openExternal", (_e, url: string) => {
 
 ipcMain.handle("clipboard:readText", () => clipboard.readText());
 
+ipcMain.handle(
+  "theme:reduced-transparency",
+  () => nativeTheme.prefersReducedTransparency
+);
+
 ipcMain.on("ctx-menu:show", (event, { url, selection }: { url?: string; selection?: string }) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
@@ -354,6 +434,7 @@ ipcMain.on("ctx-menu:show", (event, { url, selection }: { url?: string; selectio
 });
 
 app.whenReady().then(() => {
+  watchNativeTheme();
   buildMenu();
   createWindow();
 });
