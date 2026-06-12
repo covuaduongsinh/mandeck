@@ -250,6 +250,57 @@ for (const { origin, raw, parsed } of realFiles) {
   ok("missing file: fresh default, no backup");
 }
 
+// (f) paneViews tolerance: the optional pane-view-type map (only
+// non-terminal entries stored) must never reject hydration — absence, a
+// wrong type, unknown view values, and dead pane ids all normalize to
+// terminal, and valid "files" entries survive a save/load round trip.
+{
+  const dir = tmpdir();
+  const file = path.join(dir, "state.json");
+  const base = {
+    version: 2,
+    workspaces: [
+      {
+        id: "t1",
+        title: "shell",
+        autoNamed: true,
+        accentHue: DEFAULT_ACCENT,
+        cols: [{ cid: "c1", panes: ["p1", "p2"] }],
+        focusedPaneId: "p1",
+        maximizedPaneId: null,
+      },
+    ],
+    activeWorkspaceId: "t1",
+    paneCwds: {},
+  };
+
+  // Mixed garbage: only the live "files" entry survives repair.
+  const mixed = {
+    ...base,
+    paneViews: { p1: "files", p2: "bogus", ghost: "files", p9: 42 },
+  };
+  fs.writeFileSync(file, JSON.stringify(mixed));
+  const res = loadStateFile(file);
+  assert.equal(res.source, "v2", "paneViews garbage never rejects hydration");
+  assert.ok(validateV2(res.state));
+  const hydrated = repairV2(res.state, DEFAULT_ACCENT);
+  assert.deepEqual(hydrated.paneViews, { p1: "files" });
+
+  // Absent or wrong-type map → all panes are terminals; still hydrates.
+  for (const bad of [undefined, null, "files", 7, ["p1"]]) {
+    const doc = { ...base, paneViews: bad };
+    assert.ok(validateV2(doc), "absent/wrong-type paneViews still validates");
+    assert.deepEqual(repairV2(doc, DEFAULT_ACCENT).paneViews, {});
+  }
+
+  // Round trip: a valid entry written by the app comes back unchanged.
+  writeStateFile(file, hydrated);
+  const res2 = loadStateFile(file);
+  assert.equal(res2.source, "v2");
+  assert.deepEqual(repairV2(res2.state, DEFAULT_ACCENT), hydrated);
+  ok("paneViews: absent/invalid tolerated as terminal; files entries round-trip");
+}
+
 console.log("Migration acceptance test (SPEC B3)\n");
 for (const line of results) console.log(line);
 console.log(`\n${passed} assertions groups passed.`);

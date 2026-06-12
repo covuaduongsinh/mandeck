@@ -128,10 +128,24 @@ function maxSuffixPane(panes) {
   return best;
 }
 
+// Pane view types: only non-terminal entries are stored ("files" today);
+// absence, a wrong type, an unknown view value, or an entry keyed by a pane
+// that no longer exists all normalize to terminal — never a rejection and
+// never a version bump (same tolerance contract as sidebarVisible).
+function repairPaneViews(raw, livePaneIds) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [pid, view] of Object.entries(raw)) {
+    if (view === "files" && livePaneIds.has(pid)) out[pid] = view;
+  }
+  return out;
+}
+
 // Hydration repairs (B3 §7, B4 §7): dangling activeWorkspaceId → first
 // workspace; missing/invalid accentHue → re-assigned in array order by the
 // B1 scan; dangling focusedPaneId → max-suffix pane; dangling
-// maximizedPaneId → null; sidebarVisible absent/non-boolean → true.
+// maximizedPaneId → null; sidebarVisible absent/non-boolean → true;
+// paneViews normalized by repairPaneViews above.
 // Never rejects — input must already pass validateV2.
 export function repairV2(doc, defaultAccent = DEFAULT_ACCENT) {
   const owned = doc.workspaces
@@ -165,11 +179,15 @@ export function repairV2(doc, defaultAccent = DEFAULT_ACCENT) {
   const activeWorkspaceId = workspaces.some((w) => w.id === doc.activeWorkspaceId)
     ? doc.activeWorkspaceId
     : workspaces[0].id;
+  const livePaneIds = new Set(
+    workspaces.flatMap((w) => w.cols.flatMap((c) => c.panes))
+  );
   const out = {
     version: 2,
     workspaces,
     activeWorkspaceId,
     paneCwds: doc.paneCwds && typeof doc.paneCwds === "object" ? doc.paneCwds : {},
+    paneViews: repairPaneViews(doc.paneViews, livePaneIds),
     sidebarVisible: typeof doc.sidebarVisible === "boolean" ? doc.sidebarVisible : true,
   };
   const wb = doc.windowBounds;

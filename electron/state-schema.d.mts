@@ -1,6 +1,9 @@
-import type { PersistedState } from "../src/types";
+import type { PaneViewKind, PersistedState } from "../src/types";
 
-export type RepairedState = PersistedState & { sidebarVisible: boolean };
+export type RepairedState = PersistedState & {
+  paneViews: Record<string, PaneViewKind>;
+  sidebarVisible: boolean;
+};
 
 export declare const ACCENT_HUES: string[];
 export declare const DEFAULT_ACCENT: string;

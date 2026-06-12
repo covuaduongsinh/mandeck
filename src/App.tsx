@@ -66,6 +66,7 @@ const initialState = (defaultAccent = DEFAULT_ACCENT): AppState => {
     workspaces: [ws],
     activeWorkspaceId: ws.id,
     paneCwds: {},
+    paneViews: {},
     sidebarVisible: true,
   };
 };
@@ -98,10 +99,11 @@ function restoreCounters(state: Pick<AppState, "workspaces">) {
   _wid = maxNumericSuffix(wids);
 }
 
-function dropPaneCwds(
-  map: Record<string, string>,
+// Shared by paneCwds and paneViews: closed panes leave no dead keys behind.
+function dropPaneKeys<T>(
+  map: Record<string, T>,
   pids: string[]
-): Record<string, string> {
+): Record<string, T> {
   if (!pids.some((p) => p in map)) return map;
   const next = { ...map };
   for (const p of pids) delete next[p];
@@ -239,6 +241,9 @@ const buildPayload = (s: AppState): PersistedState => ({
   workspaces: s.workspaces,
   activeWorkspaceId: s.activeWorkspaceId,
   paneCwds: s.paneCwds,
+  // Only non-terminal entries live in the map (terminal = absent), so the
+  // field round-trips as written; absence in old files is tolerated (B3).
+  paneViews: s.paneViews,
   sidebarVisible: s.sidebarVisible,
 });
 
@@ -294,6 +299,7 @@ function AppBody() {
             workspaces: repaired.workspaces,
             activeWorkspaceId: repaired.activeWorkspaceId,
             paneCwds: repaired.paneCwds,
+            paneViews: repaired.paneViews,
             sidebarVisible: repaired.sidebarVisible,
           });
         } else if (loaded.defaultAccent !== DEFAULT_ACCENT) {
@@ -469,11 +475,13 @@ function AppBody() {
         s.activeWorkspaceId === targetId
           ? nextWorkspaces[Math.min(idx, nextWorkspaces.length - 1)].id
           : s.activeWorkspaceId;
+      const victimPanes = victim.cols.flatMap((c) => c.panes);
       return {
         ...s,
         workspaces: nextWorkspaces,
         activeWorkspaceId: nextActive,
-        paneCwds: dropPaneCwds(s.paneCwds, victim.cols.flatMap((c) => c.panes)),
+        paneCwds: dropPaneKeys(s.paneCwds, victimPanes),
+        paneViews: dropPaneKeys(s.paneViews, victimPanes),
       };
     });
   };
@@ -496,7 +504,8 @@ function AppBody() {
           ...s,
           workspaces: rest,
           activeWorkspaceId: rest[Math.min(idx, rest.length - 1)].id,
-          paneCwds: dropPaneCwds(s.paneCwds, [victim]),
+          paneCwds: dropPaneKeys(s.paneCwds, [victim]),
+          paneViews: dropPaneKeys(s.paneViews, [victim]),
         };
       }
       return {
@@ -504,7 +513,8 @@ function AppBody() {
         workspaces: s.workspaces.map((w) =>
           w.id === s.activeWorkspaceId ? next : w
         ),
-        paneCwds: dropPaneCwds(s.paneCwds, [victim]),
+        paneCwds: dropPaneKeys(s.paneCwds, [victim]),
+        paneViews: dropPaneKeys(s.paneViews, [victim]),
       };
     });
   };
