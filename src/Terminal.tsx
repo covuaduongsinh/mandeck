@@ -11,6 +11,7 @@ import { getOverlayHost } from "./overlay";
 import { usePaneDropTarget } from "./pane-dnd";
 import { getPaneSlot, subscribePaneSlot } from "./pane-slots";
 import { abbreviatePath } from "./paths";
+import { findLinks } from "./link-detect";
 
 function shellQuoteIfNeeded(p: string): string {
   if (!/[\s'"\\$`(){}[\]&;<>*?#!]/.test(p)) return p;
@@ -88,7 +89,8 @@ const IconClose = () => (
   </svg>
 );
 
-const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/g;
+// Link shapes (scheme URLs, bare domains on the curated TLD list,
+// localhost/IP:port) live in link-detect.ts; activation is ⌘+click.
 
 export function Terminal({
   id,
@@ -364,21 +366,19 @@ export function Terminal({
         }
         const cols = term.cols;
         const links: ILink[] = [];
-        URL_RE.lastIndex = 0;
-        let m: RegExpExecArray | null;
-        while ((m = URL_RE.exec(text)) !== null) {
-          const start = m.index;
-          const end = start + m[0].length - 1;
-          const startCol = (start % cols) + 1;
-          const startRow = lineNumber + Math.floor(start / cols);
-          const endCol = (end % cols) + 1;
-          const endRow = lineNumber + Math.floor(end / cols);
+        for (const found of findLinks(text)) {
+          const startCol = (found.start % cols) + 1;
+          const startRow = lineNumber + Math.floor(found.start / cols);
+          const endCol = (found.end % cols) + 1;
+          const endRow = lineNumber + Math.floor(found.end / cols);
           links.push({
             range: {
               start: { x: startCol, y: startRow },
               end: { x: endCol, y: endRow },
             },
-            text: m[0],
+            // The normalized form (scheme added for bare hosts) is what
+            // activate/hover receive and what openExternal needs.
+            text: found.url,
             activate: (e, url) => {
               // Match macOS terminal convention: only open on ⌘+click
               // (or Ctrl+click elsewhere). A plain click should not yank
@@ -402,17 +402,21 @@ export function Terminal({
 
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      const url = hoveredUrlRef.current ?? undefined;
-      let selection: string | undefined = term.getSelection() || undefined;
-      if (!url && selection && URL_RE.test(selection.trim())) {
-        URL_RE.lastIndex = 0;
+      let url = hoveredUrlRef.current ?? undefined;
+      const selection: string | undefined = term.getSelection() || undefined;
+      if (!url && selection) {
+        // A selection that IS a single link (scheme or bare-host) offers
+        // Open URL with its normalized form.
         const trimmed = selection.trim();
-        if (/^https?:\/\/\S+$/.test(trimmed)) {
-          window.mandeck.showCtxMenu({ url: trimmed, selection });
-          return;
+        const found = findLinks(trimmed);
+        if (
+          found.length === 1 &&
+          found[0].start === 0 &&
+          found[0].text.length === trimmed.length
+        ) {
+          url = found[0].url;
         }
       }
-      URL_RE.lastIndex = 0;
       window.mandeck.showCtxMenu({ url, selection });
     };
     host.addEventListener("contextmenu", onContextMenu);

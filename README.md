@@ -93,7 +93,8 @@ all day.
 | ⌘Q ⌘Q | Quit (double-press confirm) |
 
 Double-click a workspace chip to rename it. Drag chips to reorder. ⌘+click
-opens links inside a terminal; plain clicks never navigate.
+opens links inside a terminal — including bare domains like
+`dashboard.vercel.app` and `localhost:3000`; plain clicks never navigate.
 
 ## Building from source
 

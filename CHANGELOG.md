@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.5 — 2026-06-12
+
+Smarter link detection.
+
+- ⌘+click now also opens scheme-less links: bare domains against a curated
+  TLD list (`uat-dashboard.vercel.app`, `affitor.com`, `www.google.com`),
+  plus `localhost:3000` and IPv4:port dev servers (opened as http://).
+  File names like `main.ts`, `README.md`, or `state.json` deliberately do
+  not light up, and hosts inside email addresses are ignored.
+- Right-clicking a selected bare-domain link now offers Open URL with the
+  normalized address.
+
 ## 0.1.4 — 2026-06-12
 
 Terminal text themes.
