@@ -531,7 +531,11 @@ function AppBody() {
     updateActiveWorkspace((w) => ({ ...w, focusedPaneId: pid }));
   };
 
-  // Menu IPC listeners (subscribe once; actions use setState functional updates)
+  // Menu IPC listeners, subscribed once ([] deps). The captured handlers stay
+  // valid forever: every mutation goes through setState functional updaters
+  // (no stale-state reads), and the one non-state read — addWorkspace's
+  // default accent — goes through settingsRef, which always holds the latest
+  // committed settings.
   useEffect(() => {
     const offs = [
       window.mandeck.onMenu("menu:new-pane", addPane),
