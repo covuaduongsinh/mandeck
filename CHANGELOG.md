@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 — 2026-06-11
+
+Pane variety and faster theming.
+
+- File-browser pane type: browse directories inline with navigation and
+  context actions.
+- Accent swatches now recolor the current workspace immediately.
+- Keyboard-shortcuts panel on ⌘/.
+
 ## 0.1.1 — 2026-06-11
 
 Navigation and workflow polish on top of the Glass redesign.
