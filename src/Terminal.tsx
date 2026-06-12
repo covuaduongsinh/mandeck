@@ -3,11 +3,12 @@ import { createPortal } from "react-dom";
 import { Terminal as XTerm, type ILink } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { useDrag, useDrop } from "react-dnd";
-import { getEmptyImage, NativeTypes } from "react-dnd-html5-backend";
+import { useDrag } from "react-dnd";
+import { getEmptyImage } from "react-dnd-html5-backend";
 import { PANE_DND_TYPE, type Edge, type PaneDragItem } from "./types";
 import { buildTerminalTheme } from "./terminal-theme";
 import { getOverlayHost } from "./overlay";
+import { usePaneDropTarget } from "./pane-dnd";
 import { getPaneSlot, subscribePaneSlot } from "./pane-slots";
 import { abbreviatePath } from "./paths";
 
@@ -50,20 +51,6 @@ type Props = {
   onCwdChange: (pid: string, cwd: string) => void;
   resolveDropEdge: (srcPid: string, edge: Edge) => Edge;
 };
-
-function edgeFromOffset(
-  x: number,
-  y: number,
-  w: number,
-  h: number
-): Edge {
-  const nx = x / w - 0.5; // -0.5 .. 0.5
-  const ny = y / h - 0.5;
-  if (Math.abs(nx) > Math.abs(ny)) {
-    return nx < 0 ? "left" : "right";
-  }
-  return ny < 0 ? "top" : "bottom";
-}
 
 const HOST_LABEL = (() => {
   const { user, host } = window.mandeck.hostInfo;
@@ -126,10 +113,8 @@ export function Terminal({
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const hoveredUrlRef = useRef<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
   const [oscTitle, setOscTitle] = useState<string | null>(null);
   const [cwd, setCwd] = useState<string | null>(initialCwd ?? null);
-  const [hoverEdge, setHoverEdge] = useState<Edge | null>(null);
   const onCwdChangeRef = useRef(onCwdChange);
   useEffect(() => { onCwdChangeRef.current = onCwdChange; }, [onCwdChange]);
 
@@ -216,20 +201,6 @@ export function Terminal({
   }, [dragPreview]);
 
   // --- Pane-as-drop-target (body computes which edge the cursor is over) ----
-  const computeEdge = useCallback(
-    (clientX: number, clientY: number): Edge | null => {
-      const rect = bodyRef.current?.getBoundingClientRect();
-      if (!rect) return null;
-      return edgeFromOffset(
-        clientX - rect.left,
-        clientY - rect.top,
-        rect.width,
-        rect.height
-      );
-    },
-    []
-  );
-
   const handleFileDrop = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return;
@@ -257,74 +228,17 @@ export function Terminal({
     [id, onFocus]
   );
 
-  const [{ isOver, draggedPid, hoveringType }, dropRef] = useDrop<
-    PaneDragItem | { files: File[] },
-    void,
-    {
-      isOver: boolean;
-      draggedPid: string | null;
-      hoveringType: string | symbol | null;
-    }
-  >(
-    () => ({
-      accept: [PANE_DND_TYPE, NativeTypes.FILE],
-      hover: (_item, monitor) => {
-        if (monitor.getItemType() !== PANE_DND_TYPE) {
-          if (hoverEdge !== null) setHoverEdge(null);
-          return;
-        }
-        const item = monitor.getItem() as PaneDragItem;
-        if (item.pid === id) {
-          setHoverEdge(null);
-          return;
-        }
-        const offset = monitor.getClientOffset();
-        if (!offset) return;
-        // Resolve the cap fallback up front so the wash shows the half that
-        // will actually be used (D2 §7).
-        const raw = computeEdge(offset.x, offset.y);
-        const edge = raw ? resolveDropEdge(item.pid, raw) : raw;
-        if (edge !== hoverEdge) setHoverEdge(edge);
-      },
-      drop: (_item, monitor) => {
-        const type = monitor.getItemType();
-        if (type === NativeTypes.FILE) {
-          const payload = monitor.getItem() as { files?: File[] };
-          if (payload?.files?.length) void handleFileDrop(payload.files);
-          return;
-        }
-        const paneItem = monitor.getItem() as PaneDragItem;
-        if (paneItem.pid === id) return;
-        const offset = monitor.getClientOffset();
-        const raw = offset ? computeEdge(offset.x, offset.y) : hoverEdge;
-        const edge = raw ? resolveDropEdge(paneItem.pid, raw) : raw;
-        if (edge) onMovePane(paneItem.pid, id, edge);
-        setHoverEdge(null);
-      },
-      collect: (m) => ({
-        isOver: m.isOver({ shallow: true }),
-        draggedPid:
-          m.getItemType() === PANE_DND_TYPE
-            ? ((m.getItem() as PaneDragItem | null)?.pid ?? null)
-            : null,
-        hoveringType: m.isOver({ shallow: true }) ? m.getItemType() : null,
-      }),
-    }),
-    [id, computeEdge, hoverEdge, onMovePane, handleFileDrop, resolveDropEdge]
-  );
-
-  // Drive the existing drag-over visual state via react-dnd instead of the
-  // native dragover listener we used to install on `host` — react-dnd's
-  // backend now owns those events, so the old listener never fired.
-  useEffect(() => {
-    setDragOver(isOver && hoveringType === NativeTypes.FILE);
-  }, [isOver, hoveringType]);
-
-  useEffect(() => {
-    if (!isOver) setHoverEdge(null);
-  }, [isOver]);
-
-  const dropIsSelf = draggedPid === id;
+  // Drop-target behavior lives in the shared hook (pane-dnd.ts) so the
+  // file-browser pane is the same grid citizen; react-dnd owns dragover/drop
+  // globally, which is why native FILE drops route through here too (INV-5).
+  const { dropRef, isOver, hoverEdge, dropIsSelf, fileHover } =
+    usePaneDropTarget({
+      id,
+      bodyRef,
+      resolveDropEdge,
+      onMovePane,
+      onFileDrop: handleFileDrop,
+    });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -555,7 +469,7 @@ export function Terminal({
 
   const classes = ["pane"];
   if (focused) classes.push("focused");
-  if (dragOver) classes.push("drag-over");
+  if (fileHover) classes.push("drag-over");
   if (maximized) classes.push("maximized");
   if (isDragging) classes.push("pane-dragging");
 

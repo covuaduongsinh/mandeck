@@ -5,6 +5,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { PaneGrid } from "./PaneGrid";
 import { Terminal } from "./Terminal";
+import { FileBrowser } from "./FileBrowser";
 import { PaneDragLayer } from "./PaneDragLayer";
 import { UtilityRail } from "./UtilityRail";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
@@ -437,6 +438,30 @@ function AppBody() {
 
   const addPane = () => addPaneWithCwd();
 
+  // File-browser pane (the first non-terminal view type): placed by the
+  // exact addPaneToWorkspace path, registered in paneViews, and seeded with
+  // a directory in paneCwds — default is the focused pane's cwd, falling
+  // back to home — so persistence and New Terminal Here work from creation.
+  const addFilesPane = (dirArg?: string) => {
+    setState((s) => {
+      const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+      if (!ws) return s;
+      const dir =
+        dirArg ?? s.paneCwds[ws.focusedPaneId] ?? window.mandeck.homeDir;
+      const pid = newPid();
+      let next = addPaneToWorkspace(ws, pid);
+      if (next.autoNamed) next = { ...next, title: basenameOf(dir) };
+      return {
+        ...s,
+        workspaces: s.workspaces.map((w) =>
+          w.id === s.activeWorkspaceId ? next : w
+        ),
+        paneCwds: { ...s.paneCwds, [pid]: dir },
+        paneViews: { ...s.paneViews, [pid]: "files" },
+      };
+    });
+  };
+
   const openFolderInNewPane = () => {
     void window.mandeck.pickFolder().then((dir) => {
       if (dir) addPaneWithCwd(dir);
@@ -762,6 +787,15 @@ function AppBody() {
     });
   }, []);
 
+  // File-browser row menu "New Terminal Here": dirs spawn a terminal pane
+  // through the existing cwd-aware add-pane path. Subscribed once like the
+  // other menu IPC — the handler reads no stale state.
+  useEffect(() => {
+    return window.mandeck.onFilesMenuAction(({ action, path }) => {
+      if (action === "new-terminal") addPaneWithCwd(path);
+    });
+  }, []);
+
   // Keeps the View-menu "Hide Sidebar"/"Show Sidebar" label in lockstep with
   // the persisted flag (C1).
   useEffect(() => {
@@ -1004,12 +1038,14 @@ function AppBody() {
 
   const solidTerminal = reducedTransparency || opaqueMode;
 
-  // Terminals are hoisted out of the per-workspace grids into ONE flat keyed
+  // Panes are hoisted out of the per-workspace grids into ONE flat keyed
   // list so structural changes — column moves, cross-workspace moves, source
-  // workspace closing — never change a terminal's React identity. The grids
-  // render dumb slots; each Terminal re-parents its stable host element into
+  // workspace closing — never change a pane's React identity. The grids
+  // render dumb slots; each pane re-parents its stable host element into
   // whichever slot the registry currently maps to its id (D3 pattern,
-  // generalized). A remounted terminal is a dead shell (INV-8/INV-13).
+  // generalized). A remounted terminal is a dead shell (INV-8/INV-13);
+  // a file-browser pane shares the pattern so moves keep its listing state.
+  // A pane's view type comes from paneViews ("files") — absent = terminal.
   const paneRenderList = state.workspaces.flatMap((ws) =>
     ws.cols.flatMap((c) => c.panes.map((pid) => ({ pid, ws })))
   );
@@ -1040,28 +1076,46 @@ function AppBody() {
             />
           ))}
         </div>
-        {paneRenderList.map(({ pid, ws }) => (
-          <Terminal
-            key={pid}
-            id={pid}
-            initialCwd={state.paneCwds[pid]}
-            accent={ws.accentHue}
-            solidBg={solidTerminal}
-            fontFamily={settings.fontFamily}
-            fontSize={settings.fontSize}
-            lineHeight={settings.lineHeight}
-            active={ws.id === state.activeWorkspaceId}
-            focused={ws.id === state.activeWorkspaceId && pid === ws.focusedPaneId}
-            maximized={pid === ws.maximizedPaneId}
-            onFocus={() => focusPane(pid)}
-            onClose={() => closePaneById(pid)}
-            onToggleMaximize={() => toggleMaximize(pid)}
-            onHeaderContextMenu={() => openPaneMenu(pid)}
-            onMovePane={movePane}
-            onCwdChange={setPaneCwd}
-            resolveDropEdge={resolveDropEdgeIn(ws.cols)}
-          />
-        ))}
+        {paneRenderList.map(({ pid, ws }) =>
+          state.paneViews[pid] === "files" ? (
+            <FileBrowser
+              key={pid}
+              id={pid}
+              initialDir={state.paneCwds[pid] ?? window.mandeck.homeDir}
+              active={ws.id === state.activeWorkspaceId}
+              focused={ws.id === state.activeWorkspaceId && pid === ws.focusedPaneId}
+              maximized={pid === ws.maximizedPaneId}
+              onFocus={() => focusPane(pid)}
+              onClose={() => closePaneById(pid)}
+              onToggleMaximize={() => toggleMaximize(pid)}
+              onHeaderContextMenu={() => openPaneMenu(pid)}
+              onMovePane={movePane}
+              onDirChange={setPaneCwd}
+              resolveDropEdge={resolveDropEdgeIn(ws.cols)}
+            />
+          ) : (
+            <Terminal
+              key={pid}
+              id={pid}
+              initialCwd={state.paneCwds[pid]}
+              accent={ws.accentHue}
+              solidBg={solidTerminal}
+              fontFamily={settings.fontFamily}
+              fontSize={settings.fontSize}
+              lineHeight={settings.lineHeight}
+              active={ws.id === state.activeWorkspaceId}
+              focused={ws.id === state.activeWorkspaceId && pid === ws.focusedPaneId}
+              maximized={pid === ws.maximizedPaneId}
+              onFocus={() => focusPane(pid)}
+              onClose={() => closePaneById(pid)}
+              onToggleMaximize={() => toggleMaximize(pid)}
+              onHeaderContextMenu={() => openPaneMenu(pid)}
+              onMovePane={movePane}
+              onCwdChange={setPaneCwd}
+              resolveDropEdge={resolveDropEdgeIn(ws.cols)}
+            />
+          )
+        )}
         {state.sidebarVisible && (
           <UtilityRail
             accent={activeAccent}

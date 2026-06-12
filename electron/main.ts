@@ -536,6 +536,110 @@ ipcMain.handle("dir:open-in-finder", (_e, dir: unknown) => {
   return true;
 });
 
+// File-browser pane directory listing (fs:readDir). One level only — no
+// recursive reads, no watchers in v1 (the pane refreshes manually). Sorting
+// (dirs first, then case-insensitive name) happens here so the 2000-entry
+// render cap is truthful ("showing first 2000") and the IPC payload stays
+// bounded on huge directories. Permission errors return an error code the
+// renderer turns into an inline empty state — never a crash.
+const READ_DIR_CAP = 2000;
+
+ipcMain.handle("fs:read-dir", async (_e, dir: unknown) => {
+  if (typeof dir !== "string" || !path.isAbsolute(dir)) {
+    return { ok: false as const, error: "EINVAL" };
+  }
+  let dirents;
+  try {
+    dirents = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: unknown }).code)
+        : "EUNKNOWN";
+    return { ok: false as const, error: code };
+  }
+  // Pre-cap ordering uses the dirent kind (no stat) so 100k-entry
+  // directories stay cheap; symlinks resolve to their target kind below,
+  // after the cap.
+  dirents.sort((a, b) => {
+    const da = a.isDirectory();
+    const db = b.isDirectory();
+    if (da !== db) return da ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+  const capped = dirents.slice(0, READ_DIR_CAP);
+  const entries = await Promise.all(
+    capped.map(async (d) => {
+      const symlink = d.isSymbolicLink();
+      let isDir = d.isDirectory();
+      let size = 0;
+      let mtime = 0;
+      try {
+        // stat follows symlinks, so a link to a directory descends like one.
+        const st = await fs.promises.stat(path.join(dir, d.name));
+        isDir = st.isDirectory();
+        size = st.size;
+        mtime = st.mtimeMs;
+      } catch {
+        /* broken symlink or unlinked mid-read — keep the dirent kind */
+      }
+      return {
+        name: d.name,
+        isDir,
+        size,
+        mtime,
+        hidden: d.name.startsWith("."),
+        symlink,
+      };
+    })
+  );
+  return { ok: true as const, entries, total: dirents.length };
+});
+
+// Double-clicking a file in the browser opens it with the default app.
+ipcMain.handle("fs:open-path", (_e, target: unknown) => {
+  if (typeof target !== "string" || !path.isAbsolute(target)) return false;
+  if (!fs.existsSync(target)) return false;
+  void shell.openPath(target);
+  return true;
+});
+
+// File-browser row context menu: Open / Reveal in Finder / Copy Path run
+// entirely here; New Terminal Here (dirs only) returns to the renderer over
+// files-menu:action so it reuses the existing cwd-aware add-pane path.
+ipcMain.on(
+  "files-menu:show",
+  (event, payload: { path: string; isDir: boolean }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    const target = payload?.path;
+    if (typeof target !== "string" || target === "") return;
+    const isDir = payload.isDir === true;
+    const items: MenuItemConstructorOptions[] = [
+      { label: "Open", click: () => { void shell.openPath(target); } },
+      {
+        label: "Reveal in Finder",
+        click: () => shell.showItemInFolder(target),
+      },
+      { label: "Copy Path", click: () => clipboard.writeText(target) },
+      { type: "separator" },
+      {
+        label: "New Terminal Here",
+        enabled: isDir,
+        click: () =>
+          event.sender.send("files-menu:action", {
+            action: "new-terminal",
+            path: target,
+          }),
+      },
+    ];
+    Menu.buildFromTemplate(items).popup({ window: win });
+  }
+);
+
 ipcMain.handle("shell:openExternal", (_e, url: string) => {
   if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
   shell.openExternal(url).catch(() => {});

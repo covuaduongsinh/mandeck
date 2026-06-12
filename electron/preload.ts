@@ -25,6 +25,22 @@ type PaneMenuAction = {
   targetId?: string;
 };
 
+// File-browser pane listing (fs:readDir): one directory level, metadata only.
+export type FsEntry = {
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtime: number;
+  hidden: boolean;
+  symlink: boolean;
+};
+
+export type ReadDirResult =
+  | { ok: true; entries: FsEntry[]; total: number }
+  | { ok: false; error: string };
+
+type FilesMenuAction = { action: "new-terminal"; path: string };
+
 const api = {
   createPty: (opts: { id: string; cols: number; rows: number; cwd?: string }) =>
     ipcRenderer.invoke("pty:create", opts),
@@ -53,6 +69,23 @@ const api = {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:pick-folder"),
   openDirInFinder: (dir: string): Promise<boolean> =>
     ipcRenderer.invoke("dir:open-in-finder", dir),
+
+  // File-browser pane: directory listing, open-with-default-app, and the
+  // row context menu (whose New Terminal Here action returns over
+  // files-menu:action so the renderer runs its existing add-pane path).
+  readDir: (dir: string): Promise<ReadDirResult> =>
+    ipcRenderer.invoke("fs:read-dir", dir),
+  openPath: (target: string): Promise<boolean> =>
+    ipcRenderer.invoke("fs:open-path", target),
+  showFilesMenu: (payload: { path: string; isDir: boolean }) =>
+    ipcRenderer.send("files-menu:show", payload),
+  onFilesMenuAction: (cb: (a: FilesMenuAction) => void) => {
+    const listener = (_: unknown, a: FilesMenuAction) => cb(a);
+    ipcRenderer.on("files-menu:action", listener);
+    return () => {
+      ipcRenderer.removeListener("files-menu:action", listener);
+    };
+  },
 
   onMenu: (channel: MenuChannel, cb: () => void) => {
     const listener = () => cb();
