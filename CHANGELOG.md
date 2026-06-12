@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4 — 2026-06-12
+
+Terminal text themes.
+
+- Settings → Appearance → Text theme: three curated palettes — Bright
+  (the audited baseline), Soft (text luminance pulled down ~20% for night
+  use), and Warm (soft luminance plus paper-toned whites, less blue light).
+  Live-applies to every open pane; persisted in settings.json as
+  `terminalTheme`. All palette values clear 4.5:1 against the terminal
+  background.
+
 ## 0.1.3 — 2026-06-11
 
 Resize correctness.

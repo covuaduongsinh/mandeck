@@ -1133,6 +1133,7 @@ function AppBody() {
               initialCwd={state.paneCwds[pid]}
               accent={ws.accentHue}
               solidBg={solidTerminal}
+              themeId={settings.terminalTheme}
               fontFamily={settings.fontFamily}
               fontSize={settings.fontSize}
               lineHeight={settings.lineHeight}

@@ -9,6 +9,13 @@ export const DEFAULT_FONT_SIZE = 13;
 export const DEFAULT_LINE_HEIGHT = 1.4;
 export const DEFAULT_FONT_FAMILY = "ui-monospace, 'SF Mono', Menlo, monospace";
 
+// Terminal text palettes (the color tables live in src/terminal-theme.ts —
+// this module stays pure data validation). "bright" is the audited baseline;
+// "soft" lowers text luminance for night use; "warm" additionally shifts the
+// whites away from blue.
+export const TERMINAL_THEME_IDS = ["bright", "soft", "warm"];
+export const DEFAULT_TERMINAL_THEME = "bright";
+
 export function clampFontSize(n) {
   return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(n)));
 }
@@ -21,6 +28,7 @@ export function defaultSettings(defaultShell) {
     fontSize: DEFAULT_FONT_SIZE,
     lineHeight: DEFAULT_LINE_HEIGHT,
     defaultAccent: DEFAULT_ACCENT,
+    terminalTheme: DEFAULT_TERMINAL_THEME,
     shell: defaultShell,
   };
 }
@@ -46,6 +54,9 @@ export function normalizeSettings(raw, defaultShell) {
   }
   if (ACCENT_HUES.includes(raw.defaultAccent)) {
     out.defaultAccent = raw.defaultAccent;
+  }
+  if (TERMINAL_THEME_IDS.includes(raw.terminalTheme)) {
+    out.terminalTheme = raw.terminalTheme;
   }
   if (typeof raw.shell === "string" && raw.shell.trim() !== "") {
     out.shell = raw.shell.trim();

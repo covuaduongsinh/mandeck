@@ -52,6 +52,14 @@ const firstFamilyOf = (stack: string) =>
 // A1 rotation order, for the swatch aria labels.
 const HUE_NAMES = ["Green", "Teal", "Blue", "Purple", "Red", "Orange", "Yellow"];
 
+// Terminal text palettes (terminal-theme.ts). Bright is the audited
+// baseline; Soft dims text ~20% for night; Warm also shifts whites off blue.
+const THEME_OPTIONS = [
+  { value: "bright", label: "Bright (default)" },
+  { value: "soft", label: "Soft — dimmer text" },
+  { value: "warm", label: "Warm — night, low blue" },
+];
+
 // Anchored glass-2 popover (SPEC C3): a popover, not a modal — no scrim,
 // terminals keep running behind it. Renders through the body-level overlay
 // host at z 1050 so it sits above the maximize spotlight (D3 layer table).
@@ -212,6 +220,23 @@ export function SettingsPopover({
             +
           </button>
         </div>
+      </div>
+      <div className="settings-row">
+        <label className="settings-row-label" htmlFor="settings-terminal-theme">
+          Text theme
+        </label>
+        <select
+          id="settings-terminal-theme"
+          className="settings-select"
+          value={settings.terminalTheme}
+          onChange={(e) => commit({ terminalTheme: e.target.value })}
+        >
+          {THEME_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="settings-row">
         <span className="settings-row-label" id="settings-accent-label">

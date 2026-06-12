@@ -3,9 +3,12 @@ export type Settings = {
   fontSize: number;
   lineHeight: number;
   defaultAccent: string;
+  terminalTheme: string;
   shell: string;
 };
 
+export declare const TERMINAL_THEME_IDS: string[];
+export declare const DEFAULT_TERMINAL_THEME: string;
 export declare const FONT_SIZE_MIN: number;
 export declare const FONT_SIZE_MAX: number;
 export declare const DEFAULT_FONT_SIZE: number;

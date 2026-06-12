@@ -37,6 +37,7 @@ type Props = {
   initialCwd?: string;
   accent: string;
   solidBg: boolean;
+  themeId: string;
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
@@ -94,6 +95,7 @@ export function Terminal({
   initialCwd,
   accent,
   solidBg,
+  themeId,
   fontFamily,
   fontSize,
   lineHeight,
@@ -255,7 +257,7 @@ export function Terminal({
       allowProposedApi: true,
       // Required for the 0.92 alpha background; must be set before open (A2).
       allowTransparency: true,
-      theme: buildTerminalTheme(accent, solidBg),
+      theme: buildTerminalTheme(accent, solidBg, themeId),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -448,13 +450,14 @@ export function Terminal({
     };
   }, [id]);
 
-  // Theme changes (workspace accent, reduced-transparency/Opaque mode)
-  // mutate xterm options in place — never a remount (INV-10/INV-13).
+  // Theme changes (workspace accent, reduced-transparency/Opaque mode,
+  // terminal text palette) mutate xterm options in place — never a remount
+  // (INV-10/INV-13).
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    term.options.theme = buildTerminalTheme(accent, solidBg);
-  }, [accent, solidBg]);
+    term.options.theme = buildTerminalTheme(accent, solidBg, themeId);
+  }, [accent, solidBg, themeId]);
 
   // C3 live-apply: font changes mutate xterm options in place and re-fit —
   // never a remount (a remounted terminal is a dead shell). Dormant
