@@ -2,6 +2,10 @@ export type Col = { cid: string; panes: string[] };
 
 export type Edge = "top" | "bottom" | "left" | "right";
 
+// Columns cap per workspace (B1); left/right drops at the cap fall back to
+// top/bottom inserts (D2), so the grid and the drop wash share this constant.
+export const MAX_COLS = 5;
+
 export const PANE_DND_TYPE = "mandeck/pane";
 export type PaneDragItem = { pid: string; title: string };
 

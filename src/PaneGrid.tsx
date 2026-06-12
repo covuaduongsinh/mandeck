@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Allotment, type AllotmentHandle } from "allotment";
 import { Terminal } from "./Terminal";
-import type { Col, Edge } from "./types";
+import { MAX_COLS, type Col, type Edge } from "./types";
 
 type Props = {
   workspaceId: string;
@@ -76,13 +76,29 @@ export function PaneGrid({
     return () => cancelAnimationFrame(raf);
   }, [active, cols.length, totalPanes]);
 
+  // D2 §7: a left/right drop at the 5-column cap falls back to a top/bottom
+  // insert in the target column. The wash must show the half that will
+  // actually be used — never a left/right wash that lies — so the same
+  // resolution applies to both the hover hint and the drop itself. Removing
+  // the dragged pane frees its column only when it was alone in it.
+  const resolveDropEdge = useCallback(
+    (srcPid: string, edge: Edge): Edge => {
+      if (edge === "top" || edge === "bottom") return edge;
+      const remaining = cols.filter(
+        (c) => !(c.panes.length === 1 && c.panes[0] === srcPid)
+      ).length;
+      if (remaining < MAX_COLS) return edge;
+      return edge === "left" ? "top" : "bottom";
+    },
+    [cols]
+  );
+
   return (
     <div
       className="workspace"
       data-workspace-id={workspaceId}
       style={{ display: active ? "block" : "none" }}
     >
-      {active && maximizedPaneId && <div className="pane-maximize-backdrop" />}
       <Allotment ref={outerRef} separator={false}>
         {cols.map((col) => (
           <Allotment.Pane key={col.cid} minSize={140}>
@@ -111,6 +127,7 @@ export function PaneGrid({
                     onToggleMaximize={() => onToggleMaximize(pid)}
                     onMovePane={onMovePane}
                     onCwdChange={onPaneCwd}
+                    resolveDropEdge={resolveDropEdge}
                   />
                 </Allotment.Pane>
               ))}

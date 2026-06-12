@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { DndProvider, useDragLayer } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { WorkspaceBar } from "./WorkspaceBar";
 import { PaneGrid } from "./PaneGrid";
 import { PaneDragLayer } from "./PaneDragLayer";
 import { UtilityRail } from "./UtilityRail";
+import { getOverlayHost } from "./overlay";
+import { basenameOf } from "./paths";
 import {
+  MAX_COLS,
   PANE_DND_TYPE,
   PERSIST_VERSION,
   type AppState,
@@ -35,8 +39,6 @@ const newCid = () => `c${++_cid}`;
 const newWorkspaceId = () => `t${++_wid}`;
 const paneAge = (id: string) => Number(id.slice(1)) || 0;
 
-const MAX_COLS = 5;
-
 // The settings default accent seeds a fresh state's first workspace and sets
 // the scan-start of the hue rotation for later workspaces (C3, B1).
 const makeWorkspace = (
@@ -64,16 +66,6 @@ const initialState = (defaultAccent = DEFAULT_ACCENT): AppState => {
     sidebarVisible: true,
   };
 };
-
-// B1 basename rule: "/" titles the workspace "/", the home directory titles
-// it with the user's directory name — no special-casing.
-function basenameOf(p: string): string {
-  if (p === "/") return "/";
-  const trimmed = p.endsWith("/") ? p.slice(0, -1) : p;
-  const idx = trimmed.lastIndexOf("/");
-  const base = idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
-  return base || "/";
-}
 
 function maxNumericSuffix(ids: string[]): number {
   let m = 0;
@@ -229,6 +221,7 @@ function AppBody() {
   const [state, setState] = useState<AppState>(initialState);
   const [ready, setReady] = useState(false);
   const [quitToast, setQuitToast] = useState<{ until: number } | null>(null);
+  const [toastExiting, setToastExiting] = useState(false);
   const [reducedTransparency, setReducedTransparency] = useState(false);
   const [opaqueMode, setOpaqueMode] = useState(false);
   const [settings, setSettings] = useState<Settings>(() =>
@@ -333,8 +326,12 @@ function AppBody() {
   }, [opaqueMode]);
 
   // ---- ⌘Q double-press confirm: main fires app:quit-prompt; show toast. ---
+  // Re-arming while visible restarts the window without replaying the
+  // entrance (the element stays mounted); expiry plays a 250ms fade-out
+  // before unmounting (D4).
   useEffect(() => {
     const off = window.mandeck.onQuitPrompt((windowMs) => {
+      setToastExiting(false);
       setQuitToast({ until: Date.now() + windowMs });
     });
     return () => {
@@ -343,14 +340,23 @@ function AppBody() {
   }, []);
   useEffect(() => {
     if (!quitToast) return;
+    const expire = () => {
+      setQuitToast(null);
+      setToastExiting(true);
+    };
     const remaining = quitToast.until - Date.now();
     if (remaining <= 0) {
-      setQuitToast(null);
+      expire();
       return;
     }
-    const t = setTimeout(() => setQuitToast(null), remaining);
+    const t = setTimeout(expire, remaining);
     return () => clearTimeout(t);
   }, [quitToast]);
+  useEffect(() => {
+    if (!toastExiting) return;
+    const t = setTimeout(() => setToastExiting(false), 250);
+    return () => clearTimeout(t);
+  }, [toastExiting]);
 
   const updateActiveWorkspace = (updater: (ws: Workspace) => Workspace) => {
     setState((s) => ({
@@ -562,6 +568,29 @@ function AppBody() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // The active workspace's persisted accentHue drives the --accent custom
+  // property; the token sheet derives all four sanctioned accent surfaces
+  // from it (A1). Set on the document root so the body-level overlay host
+  // (drag ghost, spotlight, popover, toast — D3 layer table) inherits it
+  // alongside the .app subtree.
+  const activeWorkspace = state.workspaces.find(
+    (w) => w.id === state.activeWorkspaceId
+  );
+  const activeAccent = activeWorkspace?.accentHue ?? DEFAULT_ACCENT;
+  useEffect(() => {
+    document.documentElement.style.setProperty("--accent", activeAccent);
+  }, [activeAccent]);
+
+  // --rail-width feeds the maximize-spotlight inset math (C1/D3). The
+  // overlay host sits outside the .app subtree, so the collapse-to-zero
+  // override must live on the document root too.
+  useEffect(() => {
+    document.documentElement.toggleAttribute(
+      "data-rail-hidden",
+      !state.sidebarVisible
+    );
+  }, [state.sidebarVisible]);
+
   const workspaceSummaries = state.workspaces.map((w) => ({
     id: w.id,
     title: w.title,
@@ -573,25 +602,10 @@ function AppBody() {
     return <div className="app app-loading" />;
   }
 
-  // The active workspace's persisted accentHue drives the --accent custom
-  // property; the token sheet derives all four sanctioned accent surfaces
-  // from it (A1).
-  const activeWorkspace = state.workspaces.find(
-    (w) => w.id === state.activeWorkspaceId
-  );
-  const accentStyle = {
-    "--accent": activeWorkspace?.accentHue ?? DEFAULT_ACCENT,
-  } as CSSProperties;
-
   const solidTerminal = reducedTransparency || opaqueMode;
 
   return (
-    <div
-      className={`app${draggingPane ? " app-dragging-pane" : ""}${
-        state.sidebarVisible ? "" : " rail-hidden"
-      }`}
-      style={accentStyle}
-    >
+    <div className={`app${draggingPane ? " app-dragging-pane" : ""}`}>
       <div className="titlebar">
         <div className="titlebar-traffic-spacer" />
         <WorkspaceBar
@@ -631,7 +645,7 @@ function AppBody() {
         </div>
         {state.sidebarVisible && (
           <UtilityRail
-            accent={activeWorkspace?.accentHue ?? DEFAULT_ACCENT}
+            accent={activeAccent}
             dragActive={draggingPane}
             settings={settings}
             onNewTerminal={addPane}
@@ -639,11 +653,17 @@ function AppBody() {
           />
         )}
       </div>
-      {quitToast && (
-        <div className="quit-toast" role="status" aria-live="polite">
-          Press ⌘Q again to quit Mandeck
-        </div>
-      )}
+      {(quitToast || toastExiting) &&
+        createPortal(
+          <div
+            className={`quit-toast${quitToast ? "" : " exiting"}`}
+            role="status"
+            aria-live="polite"
+          >
+            Press ⌘Q again to quit Mandeck
+          </div>,
+          getOverlayHost()
+        )}
     </div>
   );
 }

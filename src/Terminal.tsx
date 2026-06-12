@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Terminal as XTerm, type ILink } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -6,6 +7,8 @@ import { useDrag, useDrop } from "react-dnd";
 import { getEmptyImage, NativeTypes } from "react-dnd-html5-backend";
 import { PANE_DND_TYPE, type Edge, type PaneDragItem } from "./types";
 import { buildTerminalTheme } from "./terminal-theme";
+import { getOverlayHost } from "./overlay";
+import { basenameOf } from "./paths";
 
 function shellQuoteIfNeeded(p: string): string {
   if (!/[\s'"\\$`(){}[\]&;<>*?#!]/.test(p)) return p;
@@ -43,6 +46,7 @@ type Props = {
   onToggleMaximize: () => void;
   onMovePane: (src: string, target: string, edge: Edge) => void;
   onCwdChange: (pid: string, cwd: string) => void;
+  resolveDropEdge: (srcPid: string, edge: Edge) => Edge;
 };
 
 function edgeFromOffset(
@@ -63,6 +67,14 @@ const HOST_LABEL = (() => {
   const { user, host } = window.mandeck.hostInfo;
   return `${user}@${host}`;
 })();
+
+// D1 leading icon: 14×14 prompt-in-rounded-square terminal glyph.
+const IconPane = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="1" y="1.5" width="12" height="11" rx="2.5" />
+    <path d="M4 5.5l2.2 1.7L4 8.9" />
+  </svg>
+);
 
 const IconMaximize = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -104,6 +116,7 @@ export function Terminal({
   onToggleMaximize,
   onMovePane,
   onCwdChange,
+  resolveDropEdge,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -111,10 +124,68 @@ export function Terminal({
   const fitRef = useRef<FitAddon | null>(null);
   const hoveredUrlRef = useRef<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [title, setTitle] = useState(HOST_LABEL);
+  const [oscTitle, setOscTitle] = useState<string | null>(null);
+  const [cwd, setCwd] = useState<string | null>(initialCwd ?? null);
   const [hoverEdge, setHoverEdge] = useState<Edge | null>(null);
   const onCwdChangeRef = useRef(onCwdChange);
   useEffect(() => { onCwdChangeRef.current = onCwdChange; }, [onCwdChange]);
+
+  // D1 title fallback chain: cwd basename → OSC 0/2 title → user@host.
+  const title = cwd ? basenameOf(cwd) : oscTitle ?? HOST_LABEL;
+
+  // D3 stable per-pane host element: the pane renders exactly once into this
+  // manually-owned element (React only ever touches its children, via the
+  // portal below); the grid slot and the spotlight frame are dumb slots that
+  // adopt it imperatively. Toggling maximize therefore never changes the
+  // React identity of the terminal — the no-remount rule (INV-8/INV-13).
+  const paneHostRef = useRef<HTMLDivElement | null>(null);
+  if (!paneHostRef.current) {
+    const el = document.createElement("div");
+    el.className = "pane-host";
+    paneHostRef.current = el;
+  }
+  const gridSlotRef = useRef<HTMLDivElement | null>(null);
+  const spotlightSlotRef = useRef<HTMLDivElement | null>(null);
+
+  // The spotlight (scrim + frame) exists only while this pane is maximized
+  // in the ACTIVE workspace — a dormant workspace's persisted maximize is
+  // revealed with the workspace (B4), not painted over other workspaces.
+  const spotlightOn = maximized && active;
+  const [scrimExiting, setScrimExiting] = useState(false);
+  const prevSpotlightRef = useRef(spotlightOn);
+  useEffect(() => {
+    const was = prevSpotlightRef.current;
+    prevSpotlightRef.current = spotlightOn;
+    // Re-maximizing during the fade cancels the exit immediately.
+    if (spotlightOn) {
+      setScrimExiting(false);
+      return;
+    }
+    // Restore-by-toggle plays the 250ms scrim fade-out (D3); switching
+    // workspaces away while still maximized stays instant (B4).
+    if (was && !maximized) {
+      setScrimExiting(true);
+      const t = setTimeout(() => setScrimExiting(false), 250);
+      return () => clearTimeout(t);
+    }
+  }, [spotlightOn, maximized]);
+
+  // Slot adoption + refit. Declared BEFORE the xterm mount effect so the
+  // host element is attached to the document by the time xterm opens.
+  useEffect(() => {
+    const host = paneHostRef.current;
+    if (!host) return;
+    const target = spotlightOn ? spotlightSlotRef.current : gridSlotRef.current;
+    if (target && host.parentElement !== target) target.appendChild(host);
+    // Activation/toggle is the resize-reconciliation point (B4/D3): fit in a
+    // rAF once the container has real dimensions. Adopting the host element
+    // may drop the WebGL context; the addon's DOM fallback engages and this
+    // refit repaints.
+    const raf = requestAnimationFrame(() => {
+      try { fitRef.current?.fit(); } catch { /* hidden container */ }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [spotlightOn, active]);
 
   // --- Pane-as-draggable (header is the handle) -----------------------------
   const [{ isDragging }, dragRef, dragPreview] = useDrag<
@@ -199,7 +270,10 @@ export function Terminal({
         }
         const offset = monitor.getClientOffset();
         if (!offset) return;
-        const edge = computeEdge(offset.x, offset.y);
+        // Resolve the cap fallback up front so the wash shows the half that
+        // will actually be used (D2 §7).
+        const raw = computeEdge(offset.x, offset.y);
+        const edge = raw ? resolveDropEdge(item.pid, raw) : raw;
         if (edge !== hoverEdge) setHoverEdge(edge);
       },
       drop: (_item, monitor) => {
@@ -212,7 +286,8 @@ export function Terminal({
         const paneItem = monitor.getItem() as PaneDragItem;
         if (paneItem.pid === id) return;
         const offset = monitor.getClientOffset();
-        const edge = offset ? computeEdge(offset.x, offset.y) : hoverEdge;
+        const raw = offset ? computeEdge(offset.x, offset.y) : hoverEdge;
+        const edge = raw ? resolveDropEdge(paneItem.pid, raw) : raw;
         if (edge) onMovePane(paneItem.pid, id, edge);
         setHoverEdge(null);
       },
@@ -225,7 +300,7 @@ export function Terminal({
         hoveringType: m.isOver({ shallow: true }) ? m.getItemType() : null,
       }),
     }),
-    [id, computeEdge, hoverEdge, onMovePane, handleFileDrop]
+    [id, computeEdge, hoverEdge, onMovePane, handleFileDrop, resolveDropEdge]
   );
 
   // Drive the existing drag-over visual state via react-dnd instead of the
@@ -310,16 +385,18 @@ export function Terminal({
 
     const titleDisp = term.onTitleChange((t) => {
       const trimmed = t.trim();
-      if (trimmed) setTitle(trimmed);
+      if (trimmed) setOscTitle(trimmed);
     });
 
-    // OSC 7: shells report cwd as `file://host/path` on every prompt.
+    // OSC 7: shells report cwd as `file://host/path` on every prompt. The
+    // local copy drives the D1 header title; the callback persists the map.
     const cwdOscDisp = term.parser.registerOscHandler(7, (data) => {
       const m = /^file:\/\/[^/]*(\/.*)$/.exec(data);
       if (m) {
         try {
-          const cwd = decodeURIComponent(m[1]);
-          onCwdChangeRef.current(id, cwd);
+          const reported = decodeURIComponent(m[1]);
+          setCwd(reported);
+          onCwdChangeRef.current(id, reported);
         } catch { /* malformed encoding — ignore */ }
       }
       return true;
@@ -462,23 +539,9 @@ export function Terminal({
     }
   }, [focused]);
 
-  // Workspace activation is the single resize-reconciliation point (B4):
-  // resizes that arrived while the workspace was hidden are reconciled here,
-  // in a rAF, once the container has real dimensions again.
-  useEffect(() => {
-    if (!active) return;
-    const raf = requestAnimationFrame(() => {
-      try { fitRef.current?.fit(); } catch { /* noop */ }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [active]);
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      try { fitRef.current?.fit(); } catch { /* noop */ }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [maximized]);
+  // Workspace activation and maximize toggles share one reconciliation
+  // point: the slot-adoption effect above refits in a rAF on every
+  // (active, maximized) change (B4/D3).
 
   const classes = ["pane"];
   if (focused) classes.push("focused");
@@ -493,14 +556,21 @@ export function Terminal({
 
   const showIndicator = isOver && !dropIsSelf && hoverEdge !== null;
 
-  return (
+  // While spotlighted, the header is NOT a drag handle (D1): the drag
+  // connector is simply not attached, so the grab affordance and drag start
+  // are both absent. Un-maximize first to move the pane.
+  const headerDragRef = maximized
+    ? undefined
+    : (dragRef as unknown as React.Ref<HTMLDivElement>);
+
+  const pane = (
     <div className={classes.join(" ")}>
       <div
         className="pane-header"
-        ref={dragRef as unknown as React.Ref<HTMLDivElement>}
+        ref={headerDragRef}
         onMouseDown={handleHeaderMouseDown}
       >
-        <span className="pane-header-icon" aria-hidden>▢</span>
+        <span className="pane-header-icon" aria-hidden><IconPane /></span>
         <span className="pane-header-title" title={title}>{title}</span>
         <button
           className="pane-btn"
@@ -532,5 +602,28 @@ export function Terminal({
         )}
       </div>
     </div>
+  );
+
+  // Grid cell slot + body-portal spotlight (scrim z 800, frame z 810 — D3
+  // layer table) + the pane itself, portaled once into the stable host the
+  // slots adopt. The scrim is inert: only the header button toggles.
+  return (
+    <>
+      <div className="pane-grid-slot" ref={gridSlotRef} />
+      {(spotlightOn || scrimExiting) &&
+        createPortal(
+          <>
+            <div
+              className={`pane-maximize-scrim${scrimExiting ? " exiting" : ""}`}
+              aria-hidden
+            />
+            {spotlightOn && (
+              <div className="pane-spotlight" ref={spotlightSlotRef} />
+            )}
+          </>,
+          getOverlayHost()
+        )}
+      {createPortal(pane, paneHostRef.current)}
+    </>
   );
 }

@@ -54,6 +54,13 @@
   --border-hover: rgba(255, 255, 255, 0.16);
   --tab-active-border: rgba(255, 255, 255, 0.10);
   --tab-inactive-text: rgb(from var(--text-primary) r g b / 0.70);
+  /* Quiet icon-button glyphs sit at 70%, rising to 100% on hover (D1). */
+  --icon-70: rgb(from var(--text-primary) r g b / 0.70);
+
+  /* Drag-source frost (D2): one pane, transiently — the entire drag-time
+     blur budget. Replaces the retired global workspace dim. */
+  --frost-fill: rgb(from var(--text-primary) r g b / 0.06);
+  --frost-blur: blur(16px);
 
   /* Utility rail width (C1, fixed). Drives the maximize-spotlight inset
      math; collapses to 0 on .app.rail-hidden. */
@@ -122,9 +129,12 @@
     --glass-3-panel-blur: none;
     --glass-1-fill: var(--surface-solid);
     --glass-2-fill: var(--surface-solid);
-    --glass-3-scrim-fill: var(--surface-solid);
+    /* D3: the spotlight scrim stays a flat translucent veil (no blur) so the
+       workspace context behind it remains readable. */
+    --glass-3-scrim-fill: rgba(8, 8, 12, 0.78);
     --glass-3-panel-fill: var(--surface-solid);
     --noise: none;
+    --frost-blur: none;
   }
 }
 
@@ -139,9 +149,10 @@
   --glass-3-panel-blur: none;
   --glass-1-fill: var(--surface-solid);
   --glass-2-fill: var(--surface-solid);
-  --glass-3-scrim-fill: var(--surface-solid);
+  --glass-3-scrim-fill: rgba(8, 8, 12, 0.78);
   --glass-3-panel-fill: var(--surface-solid);
   --noise: none;
+  --frost-blur: none;
 }
 
 /* Reduced motion (A1 state 4): spring tokens become 150ms fades;
@@ -180,12 +191,14 @@ body {
   display: flex;
   flex-direction: column;
 }
-.app.rail-hidden { --rail-width: 0px; }
+/* Rail visibility collapses the inset variable at the document root so the
+   body-level overlay host (spotlight scrim/frame, D3) sees it too. */
+:root[data-rail-hidden] { --rail-width: 0px; }
 
 /* Row below the titlebar: the workspace area and the utility rail are flex
    SIBLINGS (C1 hard constraint) — the rail never sits inside a filtered or
-   transformed ancestor, so the drag-dim treatment (scoped to .workspaces)
-   and the maximize scrim (inset to the rail's left edge) both exclude it. */
+   transformed ancestor, and the maximize scrim (inset to the rail's left
+   edge, D3) excludes it geometrically. */
 .app-body {
   flex: 1;
   min-height: 0;
@@ -393,8 +406,8 @@ body {
 
 /* ==========================================================================
    Workspace / pane area. INV-14: no ancestor of the pane grid may carry
-   transform, filter, or backdrop-filter (the drag-dim filter below is the
-   audited baseline's; D2 retires it in the interactions re-skin).
+   transform, filter, or backdrop-filter — the maximize spotlight renders
+   through the body-level portal (D3), so no in-tree exceptions remain.
    ========================================================================== */
 
 .workspaces {
@@ -407,8 +420,24 @@ body {
 .workspace {
   position: absolute;
   inset: 0;
+  padding: 2px;
 }
 
+/* Grid cell slot + stable per-pane host (D3 no-remount architecture). The
+   2px slot padding plus the 2px workspace padding yields 4px gutters where
+   the window canvas (--bg-root over vibrancy) shows through (D1). */
+.pane-grid-slot {
+  height: 100%;
+  width: 100%;
+  padding: 2px;
+}
+.pane-host {
+  height: 100%;
+  width: 100%;
+}
+
+/* Pane container (D1): rounded glass-edged card. No shadow at rest —
+   elevation is reserved for the drag ghost and the spotlight. */
 .pane {
   height: 100%;
   width: 100%;
@@ -417,71 +446,72 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  border-radius: var(--radius-md);
   box-shadow: inset 0 0 0 1px var(--separator);
 }
-/* Spotlight inset math (C1/D3): the right inset is 32px measured from the
-   rail's left edge — 88px from the window edge while the rail is visible,
-   32px when hidden. */
-.pane.maximized {
-  position: fixed !important;
-  top: 72px !important;
-  left: 32px !important;
-  right: calc(32px + var(--rail-width)) !important;
-  bottom: 32px !important;
-  width: auto !important;
-  height: auto !important;
-  transform: none !important;
-  z-index: 810;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-4);
-}
-/* Allotment applies transform to .split-view-view (which establishes a
-   containing block for position:fixed children, trapping the maximized
-   pane). Neutralize it on the branch that holds the maximized pane. */
-.split-view-view:has(.pane.maximized),
-.allotment-module_splitViewView__MGZ6O:has(.pane.maximized) {
-  transform: none !important;
-}
-/* The scrim covers the workspace region only: below the titlebar, from the
-   window's left edge to the rail's left edge (C1/D3) — the rail keeps normal
-   styling and stays interactive beside it. */
-.pane-maximize-backdrop {
-  position: fixed;
-  top: 44px;
-  left: 0;
-  right: var(--rail-width);
-  bottom: 0;
-  background: var(--glass-3-scrim-fill);
-  backdrop-filter: var(--glass-3-scrim-blur);
-  -webkit-backdrop-filter: var(--glass-3-scrim-blur);
-  z-index: 800;
-}
-.pane.focused::after {
+
+/* Focus treatment (D1/R-15): 1px solid accent border plus a 2px inner ring
+   at 35% alpha, rendered inward because the split-layout containers clip
+   outside shadows. In 150ms, out 250ms (A1 focus-ring timing). */
+.pane::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--accent), inset 0 0 0 3px var(--accent-ring);
+  opacity: 0;
+  transition: opacity 250ms ease-out;
   z-index: 10;
 }
-.pane.drag-over::before {
+.pane.focused::after {
+  opacity: 1;
+  transition-duration: 150ms;
+}
+/* The focus ring is suppressed for the duration of a drag (D2). */
+.pane.pane-dragging::after { opacity: 0; }
+
+/* One overlay element serves the two mutually-exclusive treatments:
+   source-pane frost during a pane drag (D2) and the full-pane accent wash
+   while a native file drag hovers (D2 §7 / INV-5). */
+.pane::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: var(--accent-fill);
-  box-shadow: inset 0 0 0 2px var(--accent);
-  z-index: 11;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+  z-index: 12;
+}
+.pane.pane-dragging::before {
+  opacity: 1;
+  background: var(--frost-fill);
+  backdrop-filter: var(--frost-blur);
+  -webkit-backdrop-filter: var(--frost-blur);
+  transition-duration: var(--hover-in);
+}
+.pane.drag-over::before {
+  opacity: 1;
+  background: var(--accent-wash-fill);
+  box-shadow: inset 0 0 0 1px var(--accent-wash-border);
+  transition-duration: var(--hover-in);
 }
 
+/* Pane header (D1): 28px glass-1 strip; top corners follow the pane's
+   radius via the container's overflow clip. Focus is communicated by the
+   ring, not a header tint — only the title color changes. */
 .pane-header {
   flex: 0 0 28px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 6px 0 10px;
-  background: var(--fill-flat);
+  background: var(--glass-1-fill);
+  backdrop-filter: var(--glass-1-blur);
+  -webkit-backdrop-filter: var(--glass-1-blur);
   border-bottom: 1px solid var(--separator);
+  box-shadow: inset 0 1px 0 var(--glass-1-rim);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
@@ -489,13 +519,12 @@ body {
   cursor: default;
 }
 .pane.focused .pane-header {
-  background: var(--fill-flat-strong);
   color: var(--text-primary);
 }
 .pane-header-icon {
   flex: 0 0 auto;
+  display: inline-flex;
   color: var(--text-tertiary);
-  font-size: 11px;
   line-height: 1;
 }
 .pane-header-title {
@@ -513,7 +542,7 @@ body {
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--icon-70);
   cursor: pointer;
   border-radius: var(--radius-xs);
   padding: 0;
@@ -551,46 +580,102 @@ body {
   display: none;
 }
 
-/* --- Drag-to-rearrange ---------------------------------------------------- */
+/* --- Maximize spotlight (D3): body-portal scrim + frame ------------------- */
 
-.pane.pane-dragging {
-  opacity: 0.55;
+/* The scrim covers the workspace region only: below the 44px titlebar, from
+   the window's left edge to the rail's left edge (C1/D3) — the rail keeps
+   normal styling and stays interactive beside it. Inert: clicks never
+   restore. Enter 150ms fade; exit 250ms fade via .exiting. */
+.pane-maximize-scrim {
+  position: fixed;
+  top: 44px;
+  left: 0;
+  right: var(--rail-width);
+  bottom: 0;
+  background: var(--glass-3-scrim-fill);
+  backdrop-filter: var(--glass-3-scrim-blur);
+  -webkit-backdrop-filter: var(--glass-3-scrim-blur);
+  z-index: 800;
+  opacity: 1;
+  transition: opacity 250ms ease-out;
+  animation: scrim-in 150ms ease-out;
 }
+.pane-maximize-scrim::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--noise);
+  opacity: 0.03;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+.pane-maximize-scrim.exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Spotlight frame: margins 72px top / 32px left+bottom; right inset 32px
+   measured from the rail's left edge — 88px from the window edge while the
+   rail is visible, 32px when hidden. Entrance scales 0.98→1 (motion-snappy);
+   margins recompute from the live window size for free (fixed insets). */
+.pane-spotlight {
+  position: fixed;
+  top: 72px;
+  left: 32px;
+  right: calc(32px + var(--rail-width));
+  bottom: 32px;
+  z-index: 810;
+  animation: spotlight-in var(--motion-snappy);
+}
+@keyframes spotlight-in {
+  from { transform: scale(0.98); opacity: 0.8; }
+  to   { transform: scale(1); opacity: 1; }
+}
+/* The pane interior is exactly the D1 pane — content framed by chrome,
+   never glass-on-glass; only radius, border, and elevation change (R-20). */
+.pane-spotlight .pane {
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 1px var(--glass-3-border), var(--shadow-4);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-spotlight { animation-name: scrim-in; }
+}
+
+/* --- Drag-to-rearrange (D2) ------------------------------------------------ */
+
 .pane-header[draggable="true"] {
   cursor: grab;
 }
 .pane.pane-dragging .pane-header { cursor: grabbing; }
 
+/* Drop-zone hint: flat accent wash on the half that will actually be used —
+   no dash pattern (legacy green and dashed blue both retired). The 8px
+   radius is feature-specific (D2), not a shared token. */
 .pane-drop-indicator {
   position: absolute;
   pointer-events: none;
   z-index: 20;
-  border: 2px dashed var(--accent);
+  border: 1px solid var(--accent-wash-border);
   background: var(--accent-wash-fill);
-  border-radius: var(--radius-xs);
+  border-radius: 8px;
   box-sizing: border-box;
-  transition: top 0.06s linear, left 0.06s linear,
-              right 0.06s linear, bottom 0.06s linear,
-              width 0.06s linear, height 0.06s linear;
+  transition: top var(--motion-instant), left var(--motion-instant),
+              right var(--motion-instant), bottom var(--motion-instant),
+              width var(--motion-instant), height var(--motion-instant);
+  animation: wash-in var(--hover-in) ease-out;
+}
+@keyframes wash-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .pane-drop-indicator.edge-top    { top: 4px; left: 4px; right: 4px; height: calc(50% - 4px); }
 .pane-drop-indicator.edge-bottom { left: 4px; right: 4px; bottom: 4px; height: calc(50% - 4px); }
 .pane-drop-indicator.edge-left   { top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); }
 .pane-drop-indicator.edge-right  { top: 4px; bottom: 4px; right: 4px; width: calc(50% - 4px); }
-
-/* Dim the entire workspace area (panes + sashes) while a pane is being
-   dragged so the ghost + drop indicator are the only bright things. */
-.app .workspaces {
-  transition: filter 0.12s ease-out;
-}
-.app.app-dragging-pane .workspaces {
-  filter: brightness(0.45) saturate(0.7);
-}
-/* Keep drop indicators readable above the dim filter — they live inside
-   .pane-body which is filtered, so we counter-brighten the indicator. */
-.app.app-dragging-pane .pane-drop-indicator {
-  filter: brightness(2.2) saturate(1.4);
-}
 
 .pane-drag-layer {
   position: fixed;
@@ -598,6 +683,8 @@ body {
   pointer-events: none;
   z-index: 1000;
 }
+/* Lift: fade/scale in over motion-instant (the standalone `scale` property
+   composes with the JS-driven translate). Settle: 150ms fade-out. */
 .pane-drag-ghost {
   position: absolute;
   top: 0;
@@ -611,8 +698,21 @@ body {
   border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-2-rim);
-  opacity: 0.95;
+  opacity: 1;
   will-change: transform;
+  transition: opacity 150ms ease-out;
+  animation: ghost-lift var(--motion-instant);
+}
+.pane-drag-ghost.settling { opacity: 0; }
+@keyframes ghost-lift {
+  from { opacity: 0.85; scale: 0.97; }
+  to   { opacity: 1; scale: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes ghost-lift {
+    from { opacity: 0.85; }
+    to   { opacity: 1; }
+  }
 }
 .pane-drag-ghost::after {
   content: "";
@@ -635,7 +735,11 @@ body {
   font-size: 12px;
   white-space: nowrap;
 }
-.pane-drag-ghost-icon { color: var(--text-tertiary); font-size: 11px; }
+.pane-drag-ghost-icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
 .pane-drag-ghost-title {
   flex: 1 1 auto;
   overflow: hidden;
@@ -686,9 +790,9 @@ body {
 .rail-stretch { flex: 1; }
 
 /* Pointer-inert during pane drags, but visually idle — no dim, no disabled
-   look (C1); the dim filter is scoped to .workspaces, which excludes the
-   rail by construction. Dropping over the rail hits no drop target, so the
-   drag cancels and the pane snaps back. */
+   look (C1); the drag treatment is a source-pane-only frost (D2), so the
+   rail keeps its idle styling for free. Dropping over the rail hits no drop
+   target, so the drag cancels and the pane snaps back. */
 .app.app-dragging-pane .utility-rail { pointer-events: none; }
 
 .rail-item {
@@ -894,11 +998,15 @@ body {
   box-shadow: var(--focus-ring);
 }
 
-/* --- Quit confirm toast (glass-2) ----------------------------------------- */
+/* --- Quit confirm toast (D4, glass-2) -------------------------------------
+   Bottom-center capsule, 24px above the window bottom; toast layer z 1100
+   (above the spotlight scrim, so the prompt is visible while maximized).
+   Click-through; one toast at a time. Enter: 8px upward slide + fade on
+   motion-snappy. Exit: 250ms fade via .exiting. No grain (small control). */
 .quit-toast {
   position: fixed;
   left: 50%;
-  bottom: 32px;
+  bottom: 24px;
   transform: translateX(-50%);
   background: var(--glass-2-fill);
   backdrop-filter: var(--glass-2-blur);
@@ -906,27 +1014,24 @@ body {
   border: 1px solid var(--glass-2-border);
   color: var(--text-primary);
   font-size: 13px;
-  padding: 10px 18px;
+  font-weight: 400;
+  white-space: nowrap;
+  padding: 10px 16px;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-2-rim);
-  overflow: hidden;
   z-index: 1100;
   pointer-events: none;
-  animation: quit-toast-in 0.12s ease-out;
+  transition: opacity 250ms ease-out;
+  animation: quit-toast-in var(--motion-snappy);
 }
-.quit-toast::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: var(--noise);
-  opacity: 0.03;
-  mix-blend-mode: soft-light;
-  pointer-events: none;
-}
+.quit-toast.exiting { opacity: 0; }
 @keyframes quit-toast-in {
-  from { opacity: 0; transform: translate(-50%, 6px); }
+  from { opacity: 0; transform: translate(-50%, 8px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .quit-toast { animation: none; }
+  @keyframes quit-toast-in {
+    from { opacity: 0; transform: translate(-50%, 0); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+  }
 }
