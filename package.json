@@ -3,7 +3,7 @@
   "productName": "Mandeck",
   "version": "0.1.0",
   "private": true,
-  "description": "Mandeck — terminal multiplexer",
+  "description": "Mandeck \u2014 terminal multiplexer",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
@@ -36,9 +36,18 @@
       ],
       "identity": null,
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "CFBundleIconName": "Mandeck"
+      }
     },
-    "asar": true
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "build/icon/Assets.car",
+        "to": "."
+      }
+    ]
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

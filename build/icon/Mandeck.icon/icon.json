@@ -1,0 +1,37 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "extended-srgb:0.1020,0.1020,0.1333,1.0000",
+      "extended-srgb:0.0431,0.0431,0.0627,1.0000"
+    ]
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "accent.svg",
+          "name": "accent"
+        },
+        {
+          "image-name": "mark.svg",
+          "name": "mark"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.4
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.35
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}
