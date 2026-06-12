@@ -462,6 +462,20 @@ ipcMain.handle("settings:open-editor", async () => {
   return true;
 });
 
+// Settings shell picker (C3): /etc/shells entries that exist on disk. The
+// renderer labels them by basename and pins the current default on top.
+ipcMain.handle("shells:list", (): string[] => {
+  try {
+    const lines = fs.readFileSync("/etc/shells", "utf8").split("\n");
+    const shells = lines
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("/") && fs.existsSync(l));
+    return [...new Set(shells)];
+  } catch {
+    return [];
+  }
+});
+
 ipcMain.on("sidebar:visible", (_e, visible: unknown) => {
   if (typeof visible !== "boolean" || visible === sidebarVisible) return;
   sidebarVisible = visible;

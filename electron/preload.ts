@@ -70,6 +70,7 @@ const api = {
   loadSettings: (): Promise<unknown> => ipcRenderer.invoke("settings:load"),
   saveSettings: (payload: unknown) => ipcRenderer.send("settings:save", payload),
   openSettingsFile: (): Promise<boolean> => ipcRenderer.invoke("settings:open-editor"),
+  listShells: (): Promise<string[]> => ipcRenderer.invoke("shells:list"),
   defaultShell: process.env.SHELL || "/bin/zsh",
   appVersion: ipcRenderer.sendSync("app:version") as string,
 

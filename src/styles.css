@@ -863,7 +863,7 @@ body {
 
 .settings-popover {
   position: fixed;
-  width: 280px;
+  width: 340px;
   z-index: 1050;
   padding: 12px 14px 14px;
   background: var(--glass-2-fill);
@@ -907,20 +907,36 @@ body {
 .settings-title { font-size: 13px; font-weight: 600; }
 .settings-version { font-size: 11px; color: var(--text-tertiary); }
 
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 12px;
-}
-.settings-label {
+/* A1 uppercase section label: 11px / 600 / +0.07em, one per group. */
+.settings-section-label {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: 14px 0 8px;
+}
+.settings-title-row + .settings-section-label { margin-top: 2px; }
+
+/* Label left, control right; captions hang under their row. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.settings-row-label {
+  flex: 0 0 auto;
+  font-size: 12px;
   color: var(--text-secondary);
 }
-.settings-note { font-size: 11px; color: var(--text-tertiary); }
+.settings-row-note {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: right;
+  margin: -6px 0 10px;
+}
 
 .settings-stepper { display: flex; align-items: center; gap: 10px; }
 .settings-stepper button {
@@ -957,19 +973,56 @@ body {
   font-size: 12px;
 }
 
-.settings-input {
-  width: 100%;
+/* Native select dressed as the old text field; color-scheme: dark keeps the
+   dropdown panel native and legible. */
+.settings-select {
+  flex: 0 1 200px;
+  min-width: 0;
   background: var(--fill-flat);
   border: 1px solid var(--separator);
   border-radius: var(--radius-xs);
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 12px;
-  padding: 6px 8px;
+  padding: 5px 6px;
   outline: none;
+  transition: background-color var(--hover-out) ease-out;
 }
-.settings-input:focus {
+.settings-select:hover {
+  background: var(--fill-hover);
+  transition-duration: var(--hover-in);
+}
+.settings-select:focus-visible {
   border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* The 7-hue workspace palette as round swatches (defaultAccent picker).
+   Swatch fills are the A1 --hue-* values, passed inline from the canonical
+   ACCENT_HUES rotation like the palette's workspace dots. */
+.settings-swatch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--glass-2-border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: border-color var(--hover-out) ease-out;
+}
+.settings-swatch:hover {
+  border-color: var(--border-hover);
+  transition-duration: var(--hover-in);
+}
+.settings-swatch.selected {
+  box-shadow: 0 0 0 2px var(--surface-solid), 0 0 0 3.5px var(--text-secondary);
+}
+.settings-swatch:focus-visible {
+  outline: none;
   box-shadow: var(--focus-ring);
 }
 

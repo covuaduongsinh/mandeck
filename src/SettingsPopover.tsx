@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -7,11 +8,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  DEFAULT_FONT_FAMILY,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   normalizeSettings,
   type Settings,
 } from "../electron/settings-schema.mjs";
+import { ACCENT_HUES } from "../electron/state-schema.mjs";
+import { basenameOf } from "./paths";
 import { getOverlayHost } from "./overlay";
 
 type Props = {
@@ -23,10 +27,35 @@ type Props = {
   onClose: () => void;
 };
 
+// Curated monospace candidates for the font picker; only families the OS
+// actually has (document.fonts.check) are offered.
+const FONT_CANDIDATES = [
+  "SF Mono",
+  "Menlo",
+  "Monaco",
+  "JetBrains Mono",
+  "Fira Code",
+  "Hack",
+  "Source Code Pro",
+  "IBM Plex Mono",
+  "Cascadia Code",
+];
+
+// Picked names commit as a stack so fallback survives a missing font.
+const fontStackFor = (name: string) => `'${name}', ${DEFAULT_FONT_FAMILY}`;
+
+const firstFamilyOf = (stack: string) =>
+  stack.split(",")[0].trim().replace(/^['"]|['"]$/g, "");
+
+// A1 rotation order, for the swatch aria labels.
+const HUE_NAMES = ["Green", "Teal", "Blue", "Purple", "Red", "Orange", "Yellow"];
+
 // Anchored glass-2 popover (SPEC C3): a popover, not a modal — no scrim,
 // terminals keep running behind it. Renders through the body-level overlay
 // host at z 1050 so it sits above the maximize spotlight (D3 layer table).
-// Each control commits on interaction; there is no Save/Cancel.
+// Each control commits on interaction; there is no Save/Cancel. Font changes
+// live-apply by option mutation in Terminal (never a remount); shell and
+// default accent apply to new panes / new workspaces only.
 export function SettingsPopover({
   accent,
   position,
@@ -36,11 +65,17 @@ export function SettingsPopover({
   onClose,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [fontFamilyDraft, setFontFamilyDraft] = useState(settings.fontFamily);
-  const [shellDraft, setShellDraft] = useState(settings.shell);
+  const [shells, setShells] = useState<string[]>([]);
 
-  useEffect(() => setFontFamilyDraft(settings.fontFamily), [settings.fontFamily]);
-  useEffect(() => setShellDraft(settings.shell), [settings.shell]);
+  useEffect(() => {
+    let cancelled = false;
+    window.mandeck.listShells().then((list) => {
+      if (!cancelled) setShells(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Esc and outside-click dismissal (C3). The gear is excluded so its own
   // click handler keeps toggle semantics.
@@ -70,9 +105,36 @@ export function SettingsPopover({
     );
   };
 
-  const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") e.currentTarget.blur();
-  };
+  const fontOptions = useMemo(() => {
+    const opts = [{ value: DEFAULT_FONT_FAMILY, label: "Default (SF Mono)" }];
+    for (const name of FONT_CANDIDATES) {
+      let installed = false;
+      try {
+        installed = document.fonts.check(`12px "${name}"`);
+      } catch {
+        /* FontFaceSet unavailable — offer the default only */
+      }
+      if (installed) opts.push({ value: fontStackFor(name), label: name });
+    }
+    return opts;
+  }, []);
+  // A hand-edited settings.json may carry a stack no option produces; it is
+  // surfaced as-is so the select always shows the current effective value.
+  const fontKnown = fontOptions.some((o) => o.value === settings.fontFamily);
+
+  // Current default pinned on top; duplicate basenames keep the full path.
+  const shellOptions = useMemo(() => {
+    const paths = [settings.shell, ...shells.filter((s) => s !== settings.shell)];
+    const counts = new Map<string, number>();
+    for (const p of paths) {
+      const b = basenameOf(p);
+      counts.set(b, (counts.get(b) ?? 0) + 1);
+    }
+    return paths.map((p) => {
+      const b = basenameOf(p);
+      return { value: p, label: (counts.get(b) ?? 0) > 1 ? `${b} — ${p}` : b };
+    });
+  }, [settings.shell, shells]);
 
   // The portal root sits outside the .app subtree, so the active workspace
   // accent is re-declared here for the focus rings.
@@ -94,8 +156,31 @@ export function SettingsPopover({
         <span className="settings-title">Settings</span>
         <span className="settings-version">v{window.mandeck.appVersion}</span>
       </div>
-      <div className="settings-field">
-        <span className="settings-label" id="settings-font-size-label">
+      <div className="settings-section-label">Appearance</div>
+      <div className="settings-row">
+        <label className="settings-row-label" htmlFor="settings-font-family">
+          Font family
+        </label>
+        <select
+          id="settings-font-family"
+          className="settings-select"
+          value={settings.fontFamily}
+          onChange={(e) => commit({ fontFamily: e.target.value })}
+        >
+          {!fontKnown && (
+            <option value={settings.fontFamily}>
+              {firstFamilyOf(settings.fontFamily)}
+            </option>
+          )}
+          {fontOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="settings-row">
+        <span className="settings-row-label" id="settings-font-size-label">
           Font size
         </span>
         <div
@@ -122,35 +207,52 @@ export function SettingsPopover({
           </button>
         </div>
       </div>
-      <div className="settings-field">
-        <label className="settings-label" htmlFor="settings-font-family">
-          Font family
-        </label>
-        <input
-          id="settings-font-family"
-          className="settings-input"
-          value={fontFamilyDraft}
-          spellCheck={false}
-          onChange={(e) => setFontFamilyDraft(e.target.value)}
-          onBlur={() => commit({ fontFamily: fontFamilyDraft })}
-          onKeyDown={commitOnEnter}
-        />
+      <div className="settings-row">
+        <span className="settings-row-label" id="settings-accent-label">
+          Accent
+        </span>
+        <div
+          className="settings-swatch-row"
+          role="radiogroup"
+          aria-labelledby="settings-accent-label"
+        >
+          {ACCENT_HUES.map((hue, i) => (
+            <button
+              key={hue}
+              type="button"
+              role="radio"
+              aria-checked={settings.defaultAccent === hue}
+              aria-label={HUE_NAMES[i]}
+              title={HUE_NAMES[i]}
+              className={`settings-swatch${
+                settings.defaultAccent === hue ? " selected" : ""
+              }`}
+              style={{ background: hue }}
+              onClick={() => commit({ defaultAccent: hue })}
+            />
+          ))}
+        </div>
       </div>
-      <div className="settings-field">
-        <label className="settings-label" htmlFor="settings-shell">
+      <div className="settings-row-note">seeds new workspaces</div>
+      <div className="settings-section-label">Terminal</div>
+      <div className="settings-row">
+        <label className="settings-row-label" htmlFor="settings-shell">
           Shell
         </label>
-        <input
+        <select
           id="settings-shell"
-          className="settings-input"
-          value={shellDraft}
-          spellCheck={false}
-          onChange={(e) => setShellDraft(e.target.value)}
-          onBlur={() => commit({ shell: shellDraft })}
-          onKeyDown={commitOnEnter}
-        />
-        <span className="settings-note">applies to new panes</span>
+          className="settings-select"
+          value={settings.shell}
+          onChange={(e) => commit({ shell: e.target.value })}
+        >
+          {shellOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
+      <div className="settings-row-note">applies to new panes</div>
       <button
         type="button"
         className="settings-edit-config"
