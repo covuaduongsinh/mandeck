@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { getOverlayHost } from "./overlay";
+import { IS_MAC, keyChord } from "./platform";
+
+const QUIT_LABEL = "Quit — press twice to confirm";
 
 type Props = {
   onClose: () => void;
@@ -92,19 +95,26 @@ export function ShortcutsPanel({ onClose }: Props) {
         {GROUPS.map((group) => (
           <section key={group.title} aria-label={group.title}>
             <div className="shortcuts-section-label">{group.title}</div>
-            {group.rows.map((row) => (
-              <div key={row.label} className="shortcuts-row">
-                <div className="shortcuts-keys">
-                  {/* Index keys: a chip can repeat within a chord (⌘Q ⌘Q). */}
-                  {row.keys.map((k, i) => (
-                    <span key={i} className="cmd-kbd">
-                      {k}
-                    </span>
-                  ))}
+            {group.rows.map((row) => {
+              // Windows has no double-press ⌘Q convention; the OS close (Alt+F4)
+              // quits. Everywhere else, glyph chords map ⌘/⇧/⌥ → Ctrl/Shift/Alt.
+              const isQuit = !IS_MAC && row.label === QUIT_LABEL;
+              const keys = isQuit ? ["Alt+F4"] : row.keys.map(keyChord);
+              const label = isQuit ? "Quit" : row.label;
+              return (
+                <div key={row.label} className="shortcuts-row">
+                  <div className="shortcuts-keys">
+                    {/* Index keys: a chip can repeat within a chord (⌘Q ⌘Q). */}
+                    {keys.map((k, i) => (
+                      <span key={i} className="cmd-kbd">
+                        {k}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="shortcuts-desc">{label}</div>
                 </div>
-                <div className="shortcuts-desc">{row.label}</div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         ))}
       </div>

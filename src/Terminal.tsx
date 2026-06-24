@@ -339,7 +339,13 @@ export function Terminal({
       const m = /^file:\/\/[^/]*(\/.*)$/.exec(data);
       if (m) {
         try {
-          const reported = decodeURIComponent(m[1]);
+          let reported = decodeURIComponent(m[1]);
+          // Windows file URIs decode to `/C:/Users/...`; convert to a native
+          // path (`C:\Users\...`) so cwd persistence, the header, and folder
+          // actions all use a path the OS actually accepts.
+          if (window.mandeck.platform === "win32") {
+            reported = reported.replace(/^\/([A-Za-z]:)/, "$1").replace(/\//g, "\\");
+          }
           setCwd(reported);
           onCwdChangeRef.current(id, reported);
         } catch { /* malformed encoding — ignore */ }

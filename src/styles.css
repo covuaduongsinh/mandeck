@@ -239,6 +239,16 @@ body {
   height: 100%;
 }
 
+/* Windows has no left traffic lights; the native min/max/close caption buttons
+   (painted by titleBarOverlay) sit on the RIGHT. Collapse the left spacer and
+   reserve room on the right so workspace chips never hide under the buttons. */
+.app.platform-win .titlebar-traffic-spacer {
+  flex-basis: 8px;
+}
+.app.platform-win .titlebar-drag-spacer {
+  flex-basis: 146px;
+}
+
 .ws-strip-wrap {
   position: relative;
   flex: 0 1 auto;

@@ -16,8 +16,10 @@
     "build": "tsc -b && vite build",
     "rebuild": "electron-rebuild -f -w node-pty",
     "test:migration": "node scripts/test-migration.mjs",
+    "make-ico": "node scripts/make-ico.mjs",
     "postinstall": "electron-rebuild -f -w node-pty || echo 'rebuild skipped'",
-    "dist": "npm run build && electron-builder --mac --arm64 --dir"
+    "dist": "npm run build && electron-builder --mac --arm64 --dir",
+    "dist:win": "npm run build && electron-builder --win"
   },
   "build": {
     "appId": "dev.mandeck.next",
@@ -47,7 +49,16 @@
         "CFBundleIconName": "Mandeck"
       }
     },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
     "asar": true,
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
     "extraResources": [
       {
         "from": "build/icon/Assets.car",

@@ -12,6 +12,7 @@ import { CommandPalette, type PaletteAction } from "./CommandPalette";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 import { getOverlayHost } from "./overlay";
 import { abbreviatePath, basenameOf } from "./paths";
+import { IS_MAC, keyChord, FILE_MANAGER } from "./platform";
 import {
   MAX_COLS,
   PANE_DND_TYPE,
@@ -42,6 +43,20 @@ const newCid = () => `c${++_cid}`;
 // survive migration with zero rewriting.
 const newWorkspaceId = () => `t${++_wid}`;
 const paneAge = (id: string) => Number(id.slice(1)) || 0;
+
+// Primary keyboard modifier: ⌘ on macOS, Ctrl on Windows/Linux. A renderer
+// shortcut fires only when it is held without Shift/Alt and without the
+// opposite OS's modifier (native-menu accelerators cover the rest). IS_MAC
+// comes from ./platform.
+const primaryChord = (e: KeyboardEvent): boolean =>
+  !e.shiftKey &&
+  !e.altKey &&
+  (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+
+// Root class toggling the Windows titlebar layout: caption buttons sit on the
+// right (via titleBarOverlay) instead of macOS traffic lights on the left.
+const PLATFORM_CLASS =
+  window.mandeck.platform === "win32" ? " platform-win" : "";
 
 // The settings default accent seeds a fresh state's first workspace and sets
 // the scan-start of the hue rotation for later workspaces (C3, B1).
@@ -814,7 +829,7 @@ function AppBody() {
   // ⌘1..⌘9 jump-to-workspace stays a renderer keydown listener (B2)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      if (!primaryChord(e)) return;
       const n = Number(e.key);
       if (Number.isInteger(n) && n >= 1 && n <= 9) {
         e.preventDefault();
@@ -844,7 +859,7 @@ function AppBody() {
   paletteOpenRef.current = paletteOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      if (!primaryChord(e)) return;
       if (e.key !== "k" && e.key !== "K") return;
       e.preventDefault();
       if (paletteOpenRef.current) closePalette();
@@ -872,7 +887,7 @@ function AppBody() {
   shortcutsOpenRef.current = shortcutsOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      if (!primaryChord(e)) return;
       if (e.key !== "/") return;
       e.preventDefault();
       if (shortcutsOpenRef.current) closeShortcuts();
@@ -939,7 +954,7 @@ function AppBody() {
           ws && ws.cols.length >= MAX_COLS
             ? "Joins the column with the fewest panes"
             : "Opens as a new column on the right",
-        chip: "⌘N",
+        chip: keyChord("⌘N"),
         run: addPane,
       },
       {
@@ -948,7 +963,7 @@ function AppBody() {
         icon: "workspace",
         title: "New Workspace",
         subtitle: "Opens at the end of the strip",
-        chip: "⌘T",
+        chip: keyChord("⌘T"),
         run: addWorkspace,
       },
       {
@@ -957,7 +972,7 @@ function AppBody() {
         icon: "folder",
         title: "Open Folder in New Pane…",
         subtitle: "Pick a directory for a fresh shell",
-        chip: "⌘O",
+        chip: keyChord("⌘O"),
         run: openFolderInNewPane,
       },
       {
@@ -972,7 +987,7 @@ function AppBody() {
         id: "reveal-cwd",
         section: "Actions",
         icon: "finder",
-        title: "Open Current Folder in Finder",
+        title: `Open Current Folder in ${FILE_MANAGER}`,
         subtitle: focusedCwd ? abbreviatePath(focusedCwd, home) : "~",
         run: () => {
           void window.mandeck.openDirInFinder(focusedCwd ?? home);
@@ -1000,7 +1015,7 @@ function AppBody() {
         icon: "keyboard",
         title: "Keyboard Shortcuts",
         subtitle: "Every binding and gesture",
-        chip: "⌘/",
+        chip: keyChord("⌘/"),
         run: openShortcuts,
       },
     ];
@@ -1044,7 +1059,7 @@ function AppBody() {
         dot: w.accentHue,
         title: `Jump to ${w.title}`,
         subtitle: `Workspace ${i + 1}`,
-        chip: i < 9 ? `⌘${i + 1}` : undefined,
+        chip: i < 9 ? keyChord(`⌘${i + 1}`) : undefined,
         run: () => switchWorkspace(w.id),
       });
     });
@@ -1084,7 +1099,9 @@ function AppBody() {
   );
 
   return (
-    <div className={`app${draggingPane ? " app-dragging-pane" : ""}`}>
+    <div
+      className={`app${PLATFORM_CLASS}${draggingPane ? " app-dragging-pane" : ""}`}
+    >
       <div className="titlebar">
         <div className="titlebar-traffic-spacer" />
         <WorkspaceBar

@@ -17,8 +17,44 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { loadStateFile, writeBackup, writeStateFile } from "./state-file.mjs";
 import { defaultSettings } from "./settings-schema.mjs";
+import { windowsShellCandidates, defaultShellPath } from "./default-shell.mjs";
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
+const IS_WIN = process.platform === "win32";
+const IS_MAC = process.platform === "darwin";
+
+// PowerShell does not emit OSC 7 (cwd-on-every-prompt) the way macOS zsh does
+// via /etc/zshrc. We wrap the existing prompt function so it writes
+// `ESC ] 7 ; file://<cwd> BEL` after each render — restoring per-pane cwd
+// tracking, workspace auto-naming, and the header path on Windows. The original
+// (profile-defined) prompt is preserved and called first. Passed as a base64
+// -EncodedCommand to sidestep all command-line quoting.
+const PWSH_OSC7_INIT = `$global:__mandeckPrompt = $function:prompt
+function global:prompt {
+  $o = & $global:__mandeckPrompt
+  $e = ''
+  try {
+    $p = (Get-Location).ProviderPath
+    if ($p) {
+      $u = ([uri]('file:///' + ($p -replace '\\\\','/'))).AbsoluteUri
+      $e = "$([char]27)]7;$u$([char]7)"
+    }
+  } catch {}
+  "$o$e"
+}`;
+const PWSH_OSC7_B64 = Buffer.from(PWSH_OSC7_INIT, "utf16le").toString("base64");
+
+// Launch arguments by shell kind. PowerShell skips its logo banner and runs the
+// OSC 7 prompt injector (then stays interactive via -NoExit); cmd takes none;
+// everything else (zsh/bash/fish/sh) is launched as a login shell.
+function shellArgs(shellPath: string): string[] {
+  const base = path.basename(shellPath).toLowerCase();
+  if (base === "powershell.exe" || base === "pwsh.exe") {
+    return ["-NoLogo", "-NoExit", "-EncodedCommand", PWSH_OSC7_B64];
+  }
+  if (base === "cmd.exe") return [];
+  return ["-l"];
+}
 
 // Dev builds share `app.getName() = "Mandeck"` with the legacy WaveTerm-based
 // Mandeck.app still installed in /Applications. Same userData dir →
@@ -175,21 +211,45 @@ function createWindow() {
   // reduced-transparency branch builds today's opaque window instead.
   const reduced = nativeTheme.prefersReducedTransparency;
 
+  // Window chrome is platform-specific. macOS: hiddenInset titlebar, inset
+  // traffic lights, and Liquid Glass vibrancy (opaque only under Reduce
+  // Transparency). Windows: no vibrancy, and the caption buttons live on the
+  // right — titleBarOverlay paints native min/max/close over the custom 44px
+  // titlebar, and the surface is always opaque.
+  // Dev window/taskbar icon on Windows (packaged builds get it from the exe,
+  // which electron-builder stamps from build/icon.ico). Omitted if absent so a
+  // missing file falls back to the default Electron icon instead of erroring.
+  const winIcon = IS_WIN ? path.join(app.getAppPath(), "build", "icon.ico") : "";
+  const chrome: ConstructorParameters<typeof BrowserWindow>[0] = IS_WIN
+    ? {
+        titleBarStyle: "hidden",
+        titleBarOverlay: {
+          color: WINDOW_BG_OPAQUE,
+          symbolColor: "#E6E6EC",
+          height: 44,
+        },
+        backgroundColor: WINDOW_BG_OPAQUE,
+        ...(winIcon && fs.existsSync(winIcon) ? { icon: winIcon } : {}),
+      }
+    : {
+        titleBarStyle: "hiddenInset",
+        // The native circles are 12px tall: y = (44 − 12) / 2 = 16 centers
+        // them in the 44px bar (A2).
+        trafficLightPosition: { x: 16, y: 16 },
+        ...(reduced
+          ? { backgroundColor: WINDOW_BG_OPAQUE }
+          : {
+              backgroundColor: WINDOW_BG_GLASS,
+              vibrancy: "under-window" as const,
+              visualEffectState: "followWindow" as const,
+            }),
+      };
+
   const win = new BrowserWindow({
     ...(valid
       ? { x: valid.x, y: valid.y, width: valid.w, height: valid.h }
       : { width: 1400, height: 900 }),
-    titleBarStyle: "hiddenInset",
-    // The native circles are 12px tall: y = (44 − 12) / 2 = 16 centers them
-    // in the 44px bar (A2).
-    trafficLightPosition: { x: 16, y: 16 },
-    ...(reduced
-      ? { backgroundColor: WINDOW_BG_OPAQUE }
-      : {
-          backgroundColor: WINDOW_BG_GLASS,
-          vibrancy: "under-window" as const,
-          visualEffectState: "followWindow" as const,
-        }),
+    ...chrome,
     title: "Mandeck",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -198,6 +258,14 @@ function createWindow() {
       sandbox: false,
     },
   });
+
+  // Windows renders the application menu as a bar that would collide with the
+  // custom 44px titlebar. Hide it (Alt still reveals it) while keeping the
+  // menu's accelerators — Ctrl+N/T/W/D/O/[ ] fire whether the bar shows or not.
+  if (IS_WIN) {
+    win.autoHideMenuBar = true;
+    win.setMenuBarVisibility(false);
+  }
 
   {
     const b = win.getBounds();
@@ -245,44 +313,48 @@ let sidebarVisible = true;
 let opaqueModeChecked = false;
 
 function buildMenu() {
-  const template: MenuItemConstructorOptions[] = [
-    { role: "appMenu" },
+  // Accelerators use CmdOrCtrl so they map to ⌘ on macOS and Ctrl on Windows.
+  const fileSubmenu: MenuItemConstructorOptions[] = [
     {
-      label: "File",
-      submenu: [
-        {
-          label: "New Workspace",
-          accelerator: "Cmd+T",
-          click: () => sendToFocused("menu:new-workspace"),
-        },
-        {
-          label: "New Pane",
-          accelerator: "Cmd+N",
-          click: () => sendToFocused("menu:new-pane"),
-        },
-        {
-          label: "Split Pane",
-          accelerator: "Cmd+D",
-          click: () => sendToFocused("menu:new-pane"),
-        },
-        {
-          label: "Open Folder…",
-          accelerator: "CmdOrCtrl+O",
-          click: () => sendToFocused("menu:open-folder"),
-        },
-        { type: "separator" },
-        {
-          label: "Close Pane",
-          accelerator: "Cmd+W",
-          click: () => sendToFocused("menu:close-pane"),
-        },
-        {
-          label: "Close Workspace",
-          accelerator: "Cmd+Shift+W",
-          click: () => sendToFocused("menu:close-workspace"),
-        },
-      ],
+      label: "New Workspace",
+      accelerator: "CmdOrCtrl+T",
+      click: () => sendToFocused("menu:new-workspace"),
     },
+    {
+      label: "New Pane",
+      accelerator: "CmdOrCtrl+N",
+      click: () => sendToFocused("menu:new-pane"),
+    },
+    {
+      label: "Split Pane",
+      accelerator: "CmdOrCtrl+D",
+      click: () => sendToFocused("menu:new-pane"),
+    },
+    {
+      label: "Open Folder…",
+      accelerator: "CmdOrCtrl+O",
+      click: () => sendToFocused("menu:open-folder"),
+    },
+    { type: "separator" },
+    {
+      label: "Close Pane",
+      accelerator: "CmdOrCtrl+W",
+      click: () => sendToFocused("menu:close-pane"),
+    },
+    {
+      label: "Close Workspace",
+      accelerator: "CmdOrCtrl+Shift+W",
+      click: () => sendToFocused("menu:close-workspace"),
+    },
+  ];
+  // macOS keeps Quit in the application menu; Windows/Linux have none, so it
+  // lives at the bottom of File.
+  if (!IS_MAC) {
+    fileSubmenu.push({ type: "separator" }, { role: "quit" });
+  }
+  const template: MenuItemConstructorOptions[] = [
+    ...(IS_MAC ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
+    { label: "File", submenu: fileSubmenu },
     { role: "editMenu" },
     {
       label: "View",
@@ -320,12 +392,12 @@ function buildMenu() {
       submenu: [
         {
           label: "Previous Workspace",
-          accelerator: "Cmd+[",
+          accelerator: "CmdOrCtrl+[",
           click: () => sendToFocused("menu:prev-workspace"),
         },
         {
           label: "Next Workspace",
-          accelerator: "Cmd+]",
+          accelerator: "CmdOrCtrl+]",
           click: () => sendToFocused("menu:next-workspace"),
         },
       ],
@@ -336,18 +408,24 @@ function buildMenu() {
 }
 
 ipcMain.handle("pty:create", (event, { id, cols, rows, cwd }) => {
-  // C3: the configured shell applies to new panes only; an invalid path is
-  // not validated here — spawn fails through the existing PTY error path.
+  // C3: the configured shell applies to new panes only. A configured shell that
+  // does not resolve on this OS — e.g. a state/settings file written on macOS
+  // ("/bin/zsh") opened on Windows — is ignored so every spawn doesn't fail
+  // with "File not found"; a pathful shell must exist on disk, a bare command
+  // name is trusted to PATH. Otherwise we fall back to the platform default.
   const settings = readSettingsFile();
-  const configuredShell =
+  const rawShell =
     settings && typeof settings.shell === "string" && settings.shell.trim() !== ""
-      ? settings.shell
+      ? settings.shell.trim()
       : null;
-  const shellPath = configuredShell || process.env.SHELL || "/bin/zsh";
+  const shellPath =
+    rawShell && (/[\\/]/.test(rawShell) ? fs.existsSync(rawShell) : true)
+      ? rawShell
+      : defaultShellPath();
   // B3 §7: restored paneCwds may point at deleted directories — node-pty
   // throws ENOENT on a missing cwd, so fall back to home before spawning.
   const spawnCwd = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
-  const pty = spawn(shellPath, ["-l"], {
+  const pty = spawn(shellPath, shellArgs(shellPath), {
     name: "xterm-256color",
     cols: cols ?? 80,
     rows: rows ?? 24,
@@ -358,9 +436,10 @@ ipcMain.handle("pty:create", (event, { id, cols, rows, cwd }) => {
       COLORTERM: "truecolor",
       MANDECK: "1",
       MANDECK_PID: id,
-      // Causes macOS /etc/zshrc to install update_terminal_cwd → zsh emits
+      // macOS /etc/zshrc installs update_terminal_cwd off this → zsh emits
       // OSC 7 on every prompt; we listen for it to persist per-pane cwd.
-      TERM_PROGRAM: "Apple_Terminal",
+      // No equivalent on Windows shells, so the marker is mac-only.
+      ...(IS_WIN ? {} : { TERM_PROGRAM: "Apple_Terminal" }),
     },
   });
   ptys.set(id, pty);
@@ -470,9 +549,11 @@ ipcMain.handle("settings:open-editor", async () => {
   return true;
 });
 
-// Settings shell picker (C3): /etc/shells entries that exist on disk. The
-// renderer labels them by basename and pins the current default on top.
+// Settings shell picker (C3): on macOS the /etc/shells entries that exist on
+// disk; on Windows the discovered shell candidates. The renderer labels them
+// by basename and pins the current default on top.
 ipcMain.handle("shells:list", (): string[] => {
+  if (IS_WIN) return windowsShellCandidates();
   try {
     const lines = fs.readFileSync("/etc/shells", "utf8").split("\n");
     const shells = lines
@@ -626,7 +707,7 @@ ipcMain.on(
     const items: MenuItemConstructorOptions[] = [
       { label: "Open", click: () => { void shell.openPath(target); } },
       {
-        label: "Reveal in Finder",
+        label: IS_MAC ? "Reveal in Finder" : "Show in File Explorer",
         click: () => shell.showItemInFolder(target),
       },
       { label: "Copy Path", click: () => clipboard.writeText(target) },
@@ -746,7 +827,11 @@ app.on("activate", () => {
 
 app.on("before-quit", (e) => {
   const now = Date.now();
-  if (now >= quitConfirmedUntil) {
+  // The double-press quit confirmation is a macOS convention. On Windows/Linux
+  // the usual quit trigger is closing the last window — re-prompting there would
+  // strand the process with no window to show the toast — so we skip straight
+  // to the flush-then-quit branch, keeping the state-save safety on every OS.
+  if (IS_MAC && now >= quitConfirmedUntil) {
     // First ⌘Q press: cancel quit, show toast, arm the confirm window.
     e.preventDefault();
     quitConfirmedUntil = now + QUIT_CONFIRM_WINDOW_MS;

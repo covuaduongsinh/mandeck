@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsPopover } from "./SettingsPopover";
 import type { Settings } from "../electron/settings-schema.mjs";
+import { keyChord } from "./platform";
 
 type Props = {
   accent: string;
@@ -133,7 +134,7 @@ export function UtilityRail({
       <button
         type="button"
         className="rail-item"
-        title="New terminal (⌘N)"
+        title={`New terminal (${keyChord("⌘N")})`}
         onClick={onNewTerminal}
       >
         <IconTerminal />

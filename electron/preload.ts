@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import os from "node:os";
+import { defaultShellPath } from "./default-shell.mjs";
 
 const hostInfo = {
   user: os.userInfo().username,
@@ -110,7 +111,13 @@ const api = {
   saveSettings: (payload: unknown) => ipcRenderer.send("settings:save", payload),
   openSettingsFile: (): Promise<boolean> => ipcRenderer.invoke("settings:open-editor"),
   listShells: (): Promise<string[]> => ipcRenderer.invoke("shells:list"),
-  defaultShell: process.env.SHELL || "/bin/zsh",
+  // Renderer settings normalization seeds the shell field from this when the
+  // user has not chosen one — the same resolver the main process spawns with,
+  // so the popover default and the first pane's shell always agree.
+  defaultShell: defaultShellPath(),
+  // Lets the renderer pick the platform-correct primary modifier (⌘ vs Ctrl)
+  // and apply Windows-specific titlebar layout.
+  platform: process.platform,
   appVersion: ipcRenderer.sendSync("app:version") as string,
 
   // C1: keeps the View-menu "Hide Sidebar"/"Show Sidebar" label in lockstep
