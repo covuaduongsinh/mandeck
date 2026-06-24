@@ -1,7 +1,7 @@
 {
   "name": "mandeck",
-  "version": "0.1.5",
-  "description": "A Liquid Glass terminal multiplexer for macOS — workspaces, tiled panes, and a design that belongs on Tahoe.",
+  "version": "0.1.6",
+  "description": "A Liquid Glass terminal multiplexer for macOS and Windows — workspaces, tiled panes, and a design that belongs on Tahoe.",
   "author": "Son Piaz",
   "license": "MIT",
   "repository": {
@@ -47,7 +47,13 @@
       "gatekeeperAssess": false,
       "extendInfo": {
         "CFBundleIconName": "Mandeck"
-      }
+      },
+      "extraResources": [
+        {
+          "from": "build/icon/Assets.car",
+          "to": "."
+        }
+      ]
     },
     "win": {
       "target": [
@@ -58,12 +64,6 @@
     "asar": true,
     "asarUnpack": [
       "**/node_modules/node-pty/**"
-    ],
-    "extraResources": [
-      {
-        "from": "build/icon/Assets.car",
-        "to": "."
-      }
     ]
   },
   "dependencies": {

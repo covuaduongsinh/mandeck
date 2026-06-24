@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.6 — 2026-06-24
+
+Windows support.
+
+- Mandeck now runs on Windows 10/11 alongside macOS. The chrome adapts per
+  platform: macOS keeps the Liquid Glass vibrancy and left traffic lights;
+  Windows uses an opaque surface with native min/max/close caption buttons on
+  the right (painted over the 44px titlebar via `titleBarOverlay`), and hides
+  the menu bar (Alt still reveals it) while keeping every Ctrl accelerator.
+- Shell discovery on Windows: PowerShell 7, Windows PowerShell 5, Git Bash,
+  then cmd.exe — the first found is the default, and all appear in the settings
+  shell picker. PowerShell panes get per-prompt cwd tracking via an injected
+  OSC 7 prompt wrapper, so header titles and workspace auto-naming work the
+  same as on macOS; `file:///C:/…` URIs are converted to native `C:\…` paths.
+- Keyboard map maps ⌘ → Ctrl in the UI and shortcuts panel; the macOS-only
+  double-press ⌘Q confirm becomes the OS close (Alt+F4) on Windows.
+- Packaging: `npm run dist:win` produces an NSIS installer and a portable
+  `.exe` (x64). Builds are unsigned for now (SmartScreen will warn).
+- Fix: a freshly created `settings.json` on Windows no longer seeds the shell
+  field with the macOS `/bin/zsh` path — it uses the resolved platform default.
+
 ## 0.1.5 — 2026-06-12
 
 Smarter link detection.

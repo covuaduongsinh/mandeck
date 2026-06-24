@@ -5,8 +5,9 @@
 <h1 align="center">Mandeck</h1>
 
 <p align="center">
-  A Liquid Glass terminal multiplexer for macOS — built for running many
-  long-lived agent sessions side by side, one workspace per project.
+  A Liquid Glass terminal multiplexer for macOS and Windows — built for
+  running many long-lived agent sessions side by side, one workspace per
+  project.
 </p>
 
 <p align="center">
@@ -17,6 +18,8 @@
 
 ## Install
 
+### macOS
+
 Grab `Mandeck.app` from the
 [latest release](https://github.com/sonpiaz/mandeck/releases/latest)
 (Apple Silicon), drop it into `/Applications`, then clear the quarantine
@@ -26,8 +29,14 @@ flag — the build is not notarized yet:
 xattr -cr /Applications/Mandeck.app
 ```
 
-Or build it yourself in two commands — see
-[Building from source](#building-from-source).
+### Windows
+
+Grab the NSIS installer or the portable `.exe` (x64) from the
+[latest release](https://github.com/sonpiaz/mandeck/releases/latest) and run
+it. The build is unsigned for now, so SmartScreen may warn — choose
+**More info → Run anyway**.
+
+Or build it yourself — see [Building from source](#building-from-source).
 
 ## Why Mandeck
 
@@ -92,32 +101,41 @@ all day.
 | ⌘/ | Keyboard shortcuts panel |
 | ⌘Q ⌘Q | Quit (double-press confirm) |
 
+On Windows, ⌘ maps to Ctrl throughout, and the double-press ⌘Q quit becomes
+the OS window close (Alt+F4) — the in-app shortcuts panel shows the mapped
+keys automatically.
+
 Double-click a workspace chip to rename it. Drag chips to reorder. ⌘+click
-opens links inside a terminal — including bare domains like
-`dashboard.vercel.app` and `localhost:3000`; plain clicks never navigate.
+(Ctrl+click on Windows) opens links inside a terminal — including bare domains
+like `dashboard.vercel.app` and `localhost:3000`; plain clicks never navigate.
 
 ## Building from source
 
-Mandeck is an Electron app targeting Apple Silicon Macs. macOS 26 renders
-the full layered glass app icon; the in-app glass chrome works on any macOS
-version Electron 33 supports, and `Reduce Transparency` collapses every
-glass surface to a solid fallback.
+Mandeck is an Electron app for Apple Silicon Macs and Windows 10/11 (x64).
+The Liquid Glass vibrancy is a macOS feature: on macOS 26 the full layered
+glass icon and under-window vibrancy render, and `Reduce Transparency`
+collapses every glass surface to a solid fallback. On Windows the chrome is
+an opaque surface with native caption buttons — the same layout and behavior,
+without the wallpaper bleed-through.
 
 ```bash
 npm install        # also rebuilds node-pty for Electron
 npm run dev        # Vite + Electron with HMR
-npm run dist       # package release/mac-arm64/Mandeck.app
+npm run dist       # macOS:   package release/mac-arm64/Mandeck.app
+npm run dist:win   # Windows: package release/ NSIS installer + portable .exe
 ```
 
-The packaged build is unsigned and not notarized — Gatekeeper will balk at
-a downloaded copy until you clear the quarantine flag (see
-[Install](#install)). A build you produce on your own machine runs as-is.
+The packaged builds are unsigned — on macOS, Gatekeeper will balk at a
+downloaded copy until you clear the quarantine flag (see [Install](#install));
+on Windows, SmartScreen may warn. A build you produce on your own machine
+runs as-is.
 
 ## Architecture
 
 - **Electron 33** — main process owns PTYs (node-pty), state and settings
-  files, and the native menu. Window uses `under-window` vibrancy with a
-  hidden-inset titlebar.
+  files, and the native menu. The window is platform-branched: macOS uses
+  `under-window` vibrancy with a hidden-inset titlebar; Windows uses an opaque
+  surface with a `titleBarOverlay` caption (min/max/close on the right).
 - **React 18 + TypeScript** — StrictMode stays off deliberately: terminal
   mounts spawn real PTYs, and a remounted terminal is a dead shell. Dormant
   workspaces stay mounted and hidden so their sessions keep streaming.

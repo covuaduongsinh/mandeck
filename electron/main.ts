@@ -533,7 +533,10 @@ ipcMain.handle("settings:open-editor", async () => {
   if (!fs.existsSync(file)) {
     // Created with defaults only when the user asks for it — never
     // speculatively at launch (C3). A corrupt file is opened as-is.
-    const doc = defaultSettings(process.env.SHELL || "/bin/zsh");
+    // defaultShellPath() resolves per-OS (zsh/$SHELL on macOS, discovered
+    // PowerShell/cmd on Windows) — the same resolver pty:create spawns with,
+    // so a freshly created settings.json never seeds a shell foreign to the OS.
+    const doc = defaultSettings(defaultShellPath());
     try {
       writeStateFile(file, doc, true);
       settingsCache = doc as unknown as Record<string, unknown>;
